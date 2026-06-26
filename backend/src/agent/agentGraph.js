@@ -190,11 +190,13 @@ async function callLLMJson(systemInstruction, userPrompt, responseSchema = null)
     const commonFallbacks = [
       'gemini-2.5-flash',
       'gemini-2.0-flash',
+      'gemini-2.0-flash-lite',
+      'gemini-flash-latest',
       'gemini-3.5-flash',
-      'gemini-flash-latest'
+      'gemini-2.5-pro'
     ];
     for (const model of commonFallbacks) {
-      if (model !== llm.modelName) {
+      if (model !== llm.modelName && !modelsToTry.includes(model)) {
         modelsToTry.push(model);
       }
     }
@@ -261,21 +263,10 @@ async function callLLMJson(systemInstruction, userPrompt, responseSchema = null)
           continue;
         }
         
-        // If it's a standard model error (404/503/etc.), fail immediately for this model and try fallback model
-        const isModelError = error.message.includes('404') || 
-                             error.message.includes('503') ||
-                             error.message.includes('Service Unavailable') ||
-                             error.message.includes('not found') || 
-                             error.message.includes('not supported') ||
-                             error.message.includes('supported methods');
-                             
-        if (isModelError && llm.type === 'gemini') {
-          console.log(`[LLM] Model "${modelName}" failed with fallbackable error. Trying next model...`);
-          break; // Break the attempts loop to move to the next model in modelsToTry
-        }
-        
-        // Rethrow other errors immediately
-        throw error;
+        // If a model attempt fails (whether standard error or rate limit exhaustion),
+        // break and try the next fallback model from modelsToTry.
+        console.log(`[LLM] Model "${modelName}" failed. Trying next model...`);
+        break;
       }
     }
   }
