@@ -27,14 +27,41 @@ export default function App() {
   }, []);
 
   const fetchHistory = async () => {
+    // Load local history from localStorage as the baseline/fallback (crucial for Vercel persistence)
+    const localRuns = JSON.parse(localStorage.getItem('insideinvest_runs') || '[]');
+    
     try {
       const response = await fetch(`${API_URL}/history`);
       if (response.ok) {
-        const data = await response.json();
-        setRunsHistory(data);
+        const serverRuns = await response.json();
+        
+        // Merge server runs and local storage runs, avoiding duplicates by matching ID
+        const merged = [...serverRuns];
+        for (const local of localRuns) {
+          if (!merged.some(m => m.id === local.id)) {
+            merged.push({
+              id: local.id,
+              companyName: local.companyName,
+              ticker: local.ticker,
+              decision: local.decision,
+              confidence: local.confidence,
+              riskRating: local.riskRating,
+              feedbackStatus: local.feedbackStatus || 'none',
+              createdAt: local.createdAt
+            });
+          }
+        }
+        
+        // Sort history by ID descending
+        merged.sort((a, b) => b.id - a.id);
+        setRunsHistory(merged);
+      } else {
+        setRunsHistory(localRuns);
       }
     } catch (err) {
       console.error("Failed to load history list:", err);
+      // Fallback to local storage on network/server error
+      setRunsHistory(localRuns);
     }
   };
 
@@ -95,6 +122,12 @@ export default function App() {
             } else if (payload.type === 'result') {
               setActiveRun(payload.result);
               setIsLoading(false);
+              
+              // Save run to localStorage to ensure it is kept persistently on ephemeral serverless hosts
+              const localRuns = JSON.parse(localStorage.getItem('insideinvest_runs') || '[]');
+              const updatedRuns = [payload.result, ...localRuns.filter(r => r.id !== payload.result.id)];
+              localStorage.setItem('insideinvest_runs', JSON.stringify(updatedRuns));
+              
               // Reload sidebar list
               fetchHistory();
             } else if (payload.type === 'error') {
@@ -118,6 +151,31 @@ export default function App() {
     setIsLoading(false);
     setFeedbackMessage('');
     
+    // Check if we have the full details in localStorage first (crucial for loading runs when the server restarts)
+    const localRuns = JSON.parse(localStorage.getItem('insideinvest_runs') || '[]');
+    const localRun = localRuns.find(r => r.id === runId);
+    
+    if (localRun) {
+      setActiveRun(localRun);
+      setSearchTerm(localRun.companyName);
+      
+      // Try to fetch from server in background to sync any changes (like server-saved feedback)
+      try {
+        const response = await fetch(`${API_URL}/history/${runId}`);
+        if (response.ok) {
+          const data = await response.json();
+          setActiveRun(data);
+          // Sync changes back to localStorage
+          const updated = localRuns.map(r => r.id === runId ? data : r);
+          localStorage.setItem('insideinvest_runs', JSON.stringify(updated));
+        }
+      } catch (err) {
+        console.warn("Background history sync failed:", err);
+      }
+      return;
+    }
+    
+    // Fallback if not found in localStorage
     try {
       const response = await fetch(`${API_URL}/history/${runId}`);
       if (!response.ok) {
@@ -126,6 +184,10 @@ export default function App() {
       const data = await response.json();
       setActiveRun(data);
       setSearchTerm(data.companyName);
+      
+      // Save to localStorage for future offline/instant access
+      const updated = [data, ...localRuns.filter(r => r.id !== runId)];
+      localStorage.setItem('insideinvest_runs', JSON.stringify(updated));
     } catch (err) {
       setError(err.message);
     }
@@ -139,6 +201,19 @@ export default function App() {
   };
 
   const handleSubmitFeedback = async (runId, status, comment) => {
+    // 1. Update in active state and local storage instantly for responsive UI
+    if (activeRun && activeRun.id === runId) {
+      const updatedRun = { ...activeRun, feedbackStatus: status, feedbackComment: comment };
+      setActiveRun(updatedRun);
+      
+      const localRuns = JSON.parse(localStorage.getItem('insideinvest_runs') || '[]');
+      const updated = localRuns.map(r => r.id === runId ? updatedRun : r);
+      localStorage.setItem('insideinvest_runs', JSON.stringify(updated));
+    }
+    
+    // Update runsHistory list locally
+    setRunsHistory(prev => prev.map(r => r.id === runId ? { ...r, feedbackStatus: status } : r));
+
     try {
       const response = await fetch(`${API_URL}/history/${runId}/feedback`, {
         method: 'POST',
