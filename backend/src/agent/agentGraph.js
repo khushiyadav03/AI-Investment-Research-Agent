@@ -7,6 +7,79 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Schemas for Controlled JSON Generation (Gemini responseSchema)
+const fundamentalAnalysisSchema = {
+  type: "object",
+  properties: {
+    strengths: {
+      type: "array",
+      items: { type: "string" },
+      description: "List of financial strengths"
+    },
+    weaknesses: {
+      type: "array",
+      items: { type: "string" },
+      description: "List of financial weaknesses"
+    },
+    metricsSummary: {
+      type: "string",
+      description: "2-3 sentences summarizing the financial health (solvency, margins, liquidity, valuation)"
+    }
+  },
+  required: ["strengths", "weaknesses", "metricsSummary"]
+};
+
+const sentimentAnalysisSchema = {
+  type: "object",
+  properties: {
+    opportunities: {
+      type: "array",
+      items: { type: "string" },
+      description: "List of market opportunities/drivers"
+    },
+    threats: {
+      type: "array",
+      items: { type: "string" },
+      description: "List of risks/threats/competitors"
+    },
+    sentiment: {
+      type: "string",
+      enum: ["Positive", "Negative", "Neutral"],
+      description: "Overall sentiment classification"
+    },
+    marketSentimentSummary: {
+      type: "string",
+      description: "2-3 sentences summarizing current sentiment and risk profile"
+    }
+  },
+  required: ["opportunities", "threats", "sentiment", "marketSentimentSummary"]
+};
+
+const synthesisDecisionSchema = {
+  type: "object",
+  properties: {
+    decision: {
+      type: "string",
+      enum: ["Invest", "Pass"],
+      description: "Final investment decision"
+    },
+    confidence: {
+      type: "integer",
+      description: "Confidence score between 0 and 100"
+    },
+    riskRating: {
+      type: "string",
+      enum: ["Low", "Medium", "High"],
+      description: "Overall risk rating"
+    },
+    reasoning: {
+      type: "string",
+      description: "A detailed, professional markdown report explaining the decision, citing specific financial stats and sentiment trends."
+    }
+  },
+  required: ["decision", "confidence", "riskRating", "reasoning"]
+};
+
 // Define the State schema using LangGraph's Annotation
 const StateAnnotation = Annotation.Root({
   companyName: Annotation(),
@@ -106,7 +179,7 @@ function cleanAndParseJson(rawText) {
   }
 }
 
-async function callLLMJson(systemInstruction, userPrompt) {
+async function callLLMJson(systemInstruction, userPrompt, responseSchema = null) {
   const llm = getLLMClient();
   if (!llm) {
     throw new Error("No LLM API keys configured. Please add GEMINI_API_KEY or OPENAI_API_KEY to your .env file.");
@@ -143,11 +216,16 @@ async function callLLMJson(systemInstruction, userPrompt) {
             systemInstruction: systemInstruction
           });
           
+          const generationConfig = {
+            responseMimeType: 'application/json'
+          };
+          if (responseSchema) {
+            generationConfig.responseSchema = responseSchema;
+          }
+          
           const result = await model.generateContent({
             contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-            generationConfig: {
-              responseMimeType: 'application/json'
-            }
+            generationConfig
           });
 
           const text = result.response.text();
@@ -314,7 +392,7 @@ ${JSON.stringify(state.searchResults, null, 2)}
 As this is a private company with no public stock filings, analyze its apparent business scale, market presence, and financial traction based on web research.`;
   }
 
-  const analysis = await callLLMJson(systemInstruction, userPrompt);
+  const analysis = await callLLMJson(systemInstruction, userPrompt, fundamentalAnalysisSchema);
   const log = `Completed fundamental analysis: ${analysis.metricsSummary}`;
   sendProgress(config, "Fundamentals analysis completed.");
   
@@ -346,7 +424,7 @@ ${JSON.stringify(state.searchResults, null, 2)}
 
 Identify key competitor dynamics, macroeconomic headwind factors, executive changes, and general news sentiment.`;
 
-  const analysis = await callLLMJson(systemInstruction, userPrompt);
+  const analysis = await callLLMJson(systemInstruction, userPrompt, sentimentAnalysisSchema);
   const log = `Completed sentiment/risk analysis. Sentiment: ${analysis.sentiment}. Summary: ${analysis.marketSentimentSummary}`;
   sendProgress(config, "Sentiment & risk evaluation completed.");
   
@@ -387,7 +465,7 @@ Search Snippets: ${JSON.stringify(state.searchResults)}
 
 Formulate your final investment thesis. Be objective and critical. If data is limited (e.g. private company), adjust confidence and risk rating accordingly and note this in reasoning.`;
 
-  const synthesis = await callLLMJson(systemInstruction, userPrompt);
+  const synthesis = await callLLMJson(systemInstruction, userPrompt, synthesisDecisionSchema);
   
   const log = `Final synthesis compiled. Decision: ${synthesis.decision} | Confidence: ${synthesis.confidence}% | Risk: ${synthesis.riskRating}`;
   sendProgress(config, "Final investment recommendation compiled.");
