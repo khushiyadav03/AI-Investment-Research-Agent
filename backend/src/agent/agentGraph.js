@@ -106,42 +106,51 @@ const StateAnnotation = Annotation.Root({
 /**
  * Resolves the LLM client based on .env configuration
  */
-function getLLMClient() {
-  const provider = process.env.DEFAULT_PROVIDER || 'gemini';
+/**
+ * Resolves the LLM clients based on .env configuration
+ */
+function getLLMClients() {
   const geminiKey = process.env.GEMINI_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
+  const clients = [];
 
-  if (provider === 'gemini' && geminiKey) {
-    return {
-      type: 'gemini',
-      client: new GoogleGenerativeAI(geminiKey),
-      modelName: process.env.GEMINI_MODEL || 'gemini-2.5-flash'
-    };
-  } else if (provider === 'openai' && openaiKey) {
-    return {
-      type: 'openai',
-      client: new OpenAI({ apiKey: openaiKey }),
-      modelName: process.env.OPENAI_MODEL || 'gpt-4o-mini'
-    };
-  } else if (geminiKey) {
-    return {
-      type: 'gemini',
-      client: new GoogleGenerativeAI(geminiKey),
-      modelName: process.env.GEMINI_MODEL || 'gemini-2.5-flash'
-    };
-  } else if (openaiKey) {
-    return {
-      type: 'openai',
-      client: new OpenAI({ apiKey: openaiKey }),
-      modelName: process.env.OPENAI_MODEL || 'gpt-4o-mini'
-    };
+  const geminiClient = geminiKey ? {
+    type: 'gemini',
+    client: new GoogleGenerativeAI(geminiKey),
+    modelNames: [
+      process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-lite',
+      'gemini-flash-latest',
+      'gemini-3.5-flash',
+      'gemini-2.5-pro'
+    ]
+  } : null;
+
+  const openaiClient = openaiKey ? {
+    type: 'openai',
+    client: new OpenAI({ apiKey: openaiKey }),
+    modelNames: [
+      process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      'gpt-4o-mini',
+      'gpt-4'
+    ]
+  } : null;
+
+  const primaryProvider = process.env.DEFAULT_PROVIDER || 'gemini';
+
+  if (primaryProvider === 'gemini') {
+    if (geminiClient) clients.push(geminiClient);
+    if (openaiClient) clients.push(openaiClient);
+  } else {
+    if (openaiClient) clients.push(openaiClient);
+    if (geminiClient) clients.push(geminiClient);
   }
-  return null;
+
+  return clients;
 }
 
-/**
- * Call the active LLM expecting a JSON output
- */
 /**
  * Helper to strip markdown formatting and repair minor JSON anomalies (like trailing commas or control characters)
  */
@@ -180,93 +189,87 @@ function cleanAndParseJson(rawText) {
 }
 
 async function callLLMJson(systemInstruction, userPrompt, responseSchema = null) {
-  const llm = getLLMClient();
-  if (!llm) {
+  const clients = getLLMClients();
+  if (clients.length === 0) {
     throw new Error("No LLM API keys configured. Please add GEMINI_API_KEY or OPENAI_API_KEY to your .env file.");
   }
 
-  const modelsToTry = [llm.modelName];
-  if (llm.type === 'gemini') {
-    const commonFallbacks = [
-      'gemini-2.5-flash',
-      'gemini-2.0-flash',
-      'gemini-2.0-flash-lite',
-      'gemini-flash-latest',
-      'gemini-3.5-flash',
-      'gemini-2.5-pro'
-    ];
-    for (const model of commonFallbacks) {
-      if (model !== llm.modelName && !modelsToTry.includes(model)) {
-        modelsToTry.push(model);
+  let lastError = null;
+
+  for (const llm of clients) {
+    // Unique the list of models for this client
+    const modelsToTry = [];
+    for (const name of llm.modelNames) {
+      if (!modelsToTry.includes(name)) {
+        modelsToTry.push(name);
       }
     }
-  }
 
-  let lastError = null;
-  for (const modelName of modelsToTry) {
-    let attempts = 0;
-    const maxAttempts = 3;
-    let modelSuccess = false;
-    
-    while (attempts < maxAttempts) {
-      try {
-        attempts++;
-        if (llm.type === 'gemini') {
-          console.log(`[LLM] Attempting generation with model: ${modelName} (Attempt ${attempts}/${maxAttempts})`);
-          const model = llm.client.getGenerativeModel({
-            model: modelName,
-            systemInstruction: systemInstruction
-          });
+    for (const modelName of modelsToTry) {
+      let attempts = 0;
+      const maxAttempts = 3;
+      
+      while (attempts < maxAttempts) {
+        try {
+          attempts++;
+          if (llm.type === 'gemini') {
+            console.log(`[LLM] Attempting generation with model: ${modelName} (Attempt ${attempts}/${maxAttempts})`);
+            const model = llm.client.getGenerativeModel({
+              model: modelName,
+              systemInstruction: systemInstruction
+            });
+            
+            const generationConfig = {
+              responseMimeType: 'application/json'
+            };
+            if (responseSchema) {
+              generationConfig.responseSchema = responseSchema;
+            }
+            
+            const result = await model.generateContent({
+              contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+              generationConfig
+            });
+
+            const text = result.response.text();
+            return cleanAndParseJson(text);
+          } else {
+            console.log(`[LLM] Attempting generation with OpenAI model: ${modelName} (Attempt ${attempts}/${maxAttempts})`);
+            const response = await llm.client.chat.completions.create({
+              model: modelName,
+              response_format: { type: "json_object" },
+              messages: [
+                { role: "system", content: systemInstruction },
+                { role: "user", content: userPrompt }
+              ],
+              temperature: 0.2
+            });
+
+            const text = response.choices[0].message.content;
+            return cleanAndParseJson(text);
+          }
+        } catch (error) {
+          console.warn(`[LLM Warning] Model "${modelName}" failed on attempt ${attempts}:`, error.message);
+          lastError = error;
           
-          const generationConfig = {
-            responseMimeType: 'application/json'
-          };
-          if (responseSchema) {
-            generationConfig.responseSchema = responseSchema;
+          // If it's a rate limit (429) / quota exceeded error, wait and retry
+          const isRateLimit = error.message.includes('429') || 
+                              error.message.includes('quota') || 
+                              error.message.includes('rate limit') ||
+                              error.message.includes('Too Many Requests');
+                              
+          if (isRateLimit && attempts < maxAttempts) {
+            const delaySec = attempts * 5; // Wait 5s, then 10s
+            console.log(`[LLM Rate Limit] Quota hit. Pausing for ${delaySec} seconds before retry...`);
+            await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+            continue;
           }
           
-          const result = await model.generateContent({
-            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-            generationConfig
-          });
-
-          const text = result.response.text();
-          return cleanAndParseJson(text);
-        } else {
-          const response = await llm.client.chat.completions.create({
-            model: llm.modelName,
-            response_format: { type: "json_object" },
-            messages: [
-              { role: "system", content: systemInstruction },
-              { role: "user", content: userPrompt }
-            ],
-            temperature: 0.2
-          });
-
-          const text = response.choices[0].message.content;
-          return cleanAndParseJson(text);
+          // If a model attempt fails (whether standard error or rate limit exhaustion),
+          // break and try the next fallback model.
+          console.log(`[LLM] Model "${modelName}" failed. Trying next model...`);
+          break;
         }
-      } catch (error) {
-        console.warn(`[LLM Warning] Model "${modelName}" failed on attempt ${attempts}:`, error.message);
-        lastError = error;
-        
-        // If it's a rate limit (429) / quota exceeded error, wait and retry
-        const isRateLimit = error.message.includes('429') || 
-                            error.message.includes('quota') || 
-                            error.message.includes('rate limit') ||
-                            error.message.includes('Too Many Requests');
-                            
-        if (isRateLimit && attempts < maxAttempts) {
-          const delaySec = attempts * 5; // Wait 5s, then 10s
-          console.log(`[LLM Rate Limit] Quota hit. Pausing for ${delaySec} seconds before retry...`);
-          await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
-          continue;
-        }
-        
-        // If a model attempt fails (whether standard error or rate limit exhaustion),
-        // break and try the next fallback model from modelsToTry.
-        console.log(`[LLM] Model "${modelName}" failed. Trying next model...`);
-        break;
       }
     }
   }
