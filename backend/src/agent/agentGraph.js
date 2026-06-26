@@ -42,7 +42,7 @@ function getLLMClient() {
     return {
       type: 'gemini',
       client: new GoogleGenerativeAI(geminiKey),
-      modelName: process.env.GEMINI_MODEL || 'gemini-1.5-flash'
+      modelName: process.env.GEMINI_MODEL || 'gemini-2.5-flash'
     };
   } else if (provider === 'openai' && openaiKey) {
     return {
@@ -54,7 +54,7 @@ function getLLMClient() {
     return {
       type: 'gemini',
       client: new GoogleGenerativeAI(geminiKey),
-      modelName: process.env.GEMINI_MODEL || 'gemini-1.5-flash'
+      modelName: process.env.GEMINI_MODEL || 'gemini-2.5-flash'
     };
   } else if (openaiKey) {
     return {
