@@ -170,3 +170,5 @@ app.listen(PORT, () => {
   console.log(`👉 http://localhost:${PORT}`);
   console.log(`==================================================`);
 });
+
+export default app;

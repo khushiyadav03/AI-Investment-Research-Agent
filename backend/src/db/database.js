@@ -5,8 +5,11 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize DB file in the backend root
-const dbPath = path.resolve(__dirname, '../../database.sqlite');
+// Initialize DB file. If on Vercel, use the writable /tmp folder
+const isVercel = process.env.VERCEL || process.env.NOW_BUILDER;
+const dbPath = isVercel 
+  ? '/tmp/database.sqlite' 
+  : path.resolve(__dirname, '../../database.sqlite');
 console.log(`[Database] Initializing SQLite database at: ${dbPath}`);
 
 const db = new DatabaseSync(dbPath);

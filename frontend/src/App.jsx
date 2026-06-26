@@ -16,7 +16,10 @@ export default function App() {
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  const API_URL = 'http://localhost:3001/api';
+  // Dynamic API URL for local dev vs production Vercel
+  const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:3001/api'
+    : '/api';
 
   // Load history on mount
   useEffect(() => {
