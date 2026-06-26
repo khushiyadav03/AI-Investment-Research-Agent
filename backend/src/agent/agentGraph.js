@@ -280,7 +280,8 @@ Response format must be exactly JSON:
   "strengths": ["list of financial strengths"],
   "weaknesses": ["list of financial weaknesses"],
   "metricsSummary": "2-3 sentences summarizing the financial health (solvency, margins, liquidity, valuation)"
-}`;
+}
+CRITICAL: Do not include unescaped double quotes inside the JSON string values. If you need to use quotes inside a text string, use single quotes instead (e.g., 'quote' instead of \"quote\").`;
 
   let userPrompt = "";
   if (hasFinancials) {
@@ -320,7 +321,8 @@ Response format must be exactly JSON:
   "threats": ["list of risks/threats/competitors"],
   "sentiment": "Positive" | "Negative" | "Neutral",
   "marketSentimentSummary": "2-3 sentences summarizing current sentiment and risk profile"
-}`;
+}
+CRITICAL: Do not include unescaped double quotes inside the JSON string values. If you need to use quotes inside a text string, use single quotes instead (e.g., 'quote' instead of \"quote\").`;
 
   const userPrompt = `Company: ${state.companyName}
 Web Search Findings:
@@ -351,7 +353,8 @@ Response format must be exactly JSON:
   "confidence": number between 0 and 100,
   "riskRating": "Low" or "Medium" or "High",
   "reasoning": "A detailed, professional markdown report (4-5 paragraphs) explaining the decision. CITE specific financial stats (such as P/E ratio, debt level, cash flows if available) and sentiment trends (competitor actions, industry trends, and regulatory/macro risks) to justify the decision, confidence score, and risk rating. Organize with headings."
-}`;
+}
+CRITICAL: Do not include unescaped double quotes inside the JSON string values. If you need to use quotes inside a text string, use single quotes instead (e.g., 'quote' instead of \"quote\").`;
 
   const userPrompt = `Company Name: ${state.companyName}
 Stock Ticker: ${state.ticker || 'N/A (Private)'}

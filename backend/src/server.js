@@ -91,7 +91,9 @@ app.post('/api/research', async (req, res) => {
       reasoning: finalState.reasoning,
       financialSummary: finalState.financialSummary,
       searchResults: finalState.searchResults,
-      thoughtLogs: finalState.thoughtLogs
+      thoughtLogs: finalState.thoughtLogs,
+      fundamentalAnalysis: finalState.fundamentalAnalysis,
+      sentimentAnalysis: finalState.sentimentAnalysis
     });
 
     // Fetch the newly saved complete row
