@@ -1,0 +1,8 @@
+{
+  "serverPort": 3001,
+  "defaultLlmProvider": "gemini",
+  "geminiModel": "gemini-flash-latest",
+  "openaiModel": "gpt-4o-mini",
+  "searchLimit": 5,
+  "cacheDurationDays": 7
+}
