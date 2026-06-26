@@ -254,22 +254,31 @@ async function callLLMJson(systemInstruction, userPrompt, responseSchema = null)
           console.warn(`[LLM Warning] Model "${modelName}" failed on attempt ${attempts}:`, error.message);
           lastError = error;
           
-          // If it's a rate limit (429) / quota exceeded error, wait and retry
+          // Identify if it's a rate limit / quota error
           const isRateLimit = error.message.includes('429') || 
                               error.message.includes('quota') || 
                               error.message.includes('rate limit') ||
                               error.message.includes('Too Many Requests');
                               
-          if (isRateLimit && attempts < maxAttempts) {
+          // Daily quota limits (e.g. PerDay, limit: 0) cannot be bypassed by waiting
+          const isDailyLimit = error.message.includes('PerDay') || 
+                               error.message.includes('daily') || 
+                               error.message.includes('limit: 0') || 
+                               error.message.includes('Daily');
+                               
+          const hasOtherClients = clients.length > 1;
+
+          // Only delay and retry if we don't have other API keys/providers to failover to,
+          // and it's a standard per-minute rate limit.
+          if (isRateLimit && !isDailyLimit && !hasOtherClients && attempts < maxAttempts) {
             const delaySec = attempts * 5; // Wait 5s, then 10s
             console.log(`[LLM Rate Limit] Quota hit. Pausing for ${delaySec} seconds before retry...`);
             await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
             continue;
           }
           
-          // If a model attempt fails (whether standard error or rate limit exhaustion),
-          // break and try the next fallback model.
-          console.log(`[LLM] Model "${modelName}" failed. Trying next model...`);
+          // If a model attempt fails, break and try the next fallback model/client immediately
+          console.log(`[LLM] Model "${modelName}" failed. Trying next model/client...`);
           break;
         }
       }
