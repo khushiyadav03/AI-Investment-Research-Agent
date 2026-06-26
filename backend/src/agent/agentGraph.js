@@ -129,57 +129,76 @@ async function callLLMJson(systemInstruction, userPrompt) {
 
   let lastError = null;
   for (const modelName of modelsToTry) {
-    try {
-      if (llm.type === 'gemini') {
-        console.log(`[LLM] Attempting generation with model: ${modelName}`);
-        const model = llm.client.getGenerativeModel({
-          model: modelName,
-          systemInstruction: systemInstruction
-        });
+    let attempts = 0;
+    const maxAttempts = 3;
+    let modelSuccess = false;
+    
+    while (attempts < maxAttempts) {
+      try {
+        attempts++;
+        if (llm.type === 'gemini') {
+          console.log(`[LLM] Attempting generation with model: ${modelName} (Attempt ${attempts}/${maxAttempts})`);
+          const model = llm.client.getGenerativeModel({
+            model: modelName,
+            systemInstruction: systemInstruction
+          });
+          
+          const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            generationConfig: {
+              responseMimeType: 'application/json'
+            }
+          });
+
+          const text = result.response.text();
+          return cleanAndParseJson(text);
+        } else {
+          const response = await llm.client.chat.completions.create({
+            model: llm.modelName,
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: systemInstruction },
+              { role: "user", content: userPrompt }
+            ],
+            temperature: 0.2
+          });
+
+          const text = response.choices[0].message.content;
+          return cleanAndParseJson(text);
+        }
+      } catch (error) {
+        console.warn(`[LLM Warning] Model "${modelName}" failed on attempt ${attempts}:`, error.message);
+        lastError = error;
         
-        const result = await model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-          generationConfig: {
-            responseMimeType: 'application/json'
-          }
-        });
-
-        const text = result.response.text();
-        return cleanAndParseJson(text);
-      } else {
-        const response = await llm.client.chat.completions.create({
-          model: llm.modelName,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemInstruction },
-            { role: "user", content: userPrompt }
-          ],
-          temperature: 0.2
-        });
-
-        const text = response.choices[0].message.content;
-        return cleanAndParseJson(text);
+        // If it's a rate limit (429) / quota exceeded error, wait and retry
+        const isRateLimit = error.message.includes('429') || 
+                            error.message.includes('quota') || 
+                            error.message.includes('rate limit') ||
+                            error.message.includes('Too Many Requests');
+                            
+        if (isRateLimit && attempts < maxAttempts) {
+          const delaySec = attempts * 5; // Wait 5s, then 10s
+          console.log(`[LLM Rate Limit] Quota hit. Pausing for ${delaySec} seconds before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+          continue;
+        }
+        
+        // If it's a standard model error (404/503/etc.), fail immediately for this model and try fallback model
+        const isModelError = error.message.includes('404') || 
+                             error.message.includes('503') ||
+                             error.message.includes('Service Unavailable') ||
+                             error.message.includes('not found') || 
+                             error.message.includes('not supported') ||
+                             error.message.includes('supported methods');
+                             
+        if (isModelError && llm.type === 'gemini') {
+          console.log(`[LLM] Model "${modelName}" failed with fallbackable error. Trying next model...`);
+          break; // Break the attempts loop to move to the next model in modelsToTry
+        }
+        
+        // Rethrow other errors immediately
+        throw error;
       }
-    } catch (error) {
-      console.warn(`[LLM Warning] Model "${modelName}" failed:`, error.message);
-      lastError = error;
-      
-      // If it's a model error, rate limit (429), or server overload (503), fallback to the next model
-      const isModelError = error.message.includes('404') || 
-                           error.message.includes('503') ||
-                           error.message.includes('429') ||
-                           error.message.includes('Service Unavailable') ||
-                           error.message.includes('quota') ||
-                           error.message.includes('rate limit') ||
-                           error.message.includes('not found') || 
-                           error.message.includes('not supported') ||
-                           error.message.includes('supported methods');
-                           
-      if (isModelError && llm.type === 'gemini') {
-        console.log(`[LLM] Model "${modelName}" failed with temporary error. Trying next fallback...`);
-        continue;
-      }
-      throw error; // Rethrow other errors (like invalid API keys) immediately
     }
   }
   
