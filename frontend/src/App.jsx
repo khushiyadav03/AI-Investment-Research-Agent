@@ -19,7 +19,7 @@ export default function App() {
   // Dynamic API URL for local dev vs production Vercel
   const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? 'http://localhost:3001/api'
-    : '/api';
+    : '/_./backend/api';
 
   // Load history on mount
   useEffect(() => {
