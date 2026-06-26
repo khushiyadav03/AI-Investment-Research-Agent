@@ -1,0 +1,427 @@
+import { StateGraph, Annotation, START, END } from '@langchain/langgraph';
+import { financeService } from '../services/financeService.js';
+import { searchService } from '../services/searchService.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Define the State schema using LangGraph's Annotation
+const StateAnnotation = Annotation.Root({
+  companyName: Annotation(),
+  ticker: Annotation(),
+  financialSummary: Annotation(),
+  chartData: Annotation(),
+  searchResults: Annotation(),
+  fundamentalAnalysis: Annotation(),
+  sentimentAnalysis: Annotation(),
+  
+  // Final outputs
+  decision: Annotation(),
+  confidence: Annotation(),
+  riskRating: Annotation(),
+  reasoning: Annotation(),
+  
+  // Running logs
+  thoughtLogs: Annotation({
+    reducer: (left, right) => left.concat(right),
+    default: () => []
+  })
+});
+
+/**
+ * Resolves the LLM client based on .env configuration
+ */
+function getLLMClient() {
+  const provider = process.env.DEFAULT_PROVIDER || 'gemini';
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+
+  if (provider === 'gemini' && geminiKey) {
+    return {
+      type: 'gemini',
+      client: new GoogleGenerativeAI(geminiKey),
+      modelName: process.env.GEMINI_MODEL || 'gemini-1.5-flash'
+    };
+  } else if (provider === 'openai' && openaiKey) {
+    return {
+      type: 'openai',
+      client: new OpenAI({ apiKey: openaiKey }),
+      modelName: process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    };
+  } else if (geminiKey) {
+    return {
+      type: 'gemini',
+      client: new GoogleGenerativeAI(geminiKey),
+      modelName: process.env.GEMINI_MODEL || 'gemini-1.5-flash'
+    };
+  } else if (openaiKey) {
+    return {
+      type: 'openai',
+      client: new OpenAI({ apiKey: openaiKey }),
+      modelName: process.env.OPENAI_MODEL || 'gpt-4o-mini'
+    };
+  }
+  return null;
+}
+
+/**
+ * Call the active LLM expecting a JSON output
+ */
+/**
+ * Helper to strip markdown formatting and repair minor JSON anomalies (like trailing commas or control characters)
+ */
+function cleanAndParseJson(rawText) {
+  let text = rawText.trim();
+  
+  // Strip markdown wraps if present
+  if (text.startsWith("```json")) {
+    text = text.substring(7);
+  } else if (text.startsWith("```")) {
+    text = text.substring(3);
+  }
+  
+  if (text.endsWith("```")) {
+    text = text.substring(0, text.length - 3);
+  }
+  
+  text = text.trim();
+  
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.warn("[LLM] Standard JSON parse failed, attempting regex repairs on text:", text.slice(0, 100) + "...");
+    try {
+      // 1. Remove trailing commas before closing braces/brackets
+      // 2. Remove illegal unescaped control characters (ASCII 0-31)
+      const repaired = text
+        .replace(/,\s*([\]}])/g, '$1') 
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+      return JSON.parse(repaired);
+    } catch (repairError) {
+      console.error("[LLM Error] JSON repair failed. Original error:", error.message);
+      throw new Error(`API returned invalid JSON format: ${error.message}`);
+    }
+  }
+}
+
+async function callLLMJson(systemInstruction, userPrompt) {
+  const llm = getLLMClient();
+  if (!llm) {
+    throw new Error("No LLM API keys configured. Please add GEMINI_API_KEY or OPENAI_API_KEY to your .env file.");
+  }
+
+  const modelsToTry = [llm.modelName];
+  if (llm.type === 'gemini') {
+    const commonFallbacks = [
+      'gemini-flash-latest',
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-3.5-flash',
+      'gemini-1.5-flash',
+      'gemini-1.5-pro',
+      'gemini-pro'
+    ];
+    for (const model of commonFallbacks) {
+      if (model !== llm.modelName) {
+        modelsToTry.push(model);
+      }
+    }
+  }
+
+  let lastError = null;
+  for (const modelName of modelsToTry) {
+    try {
+      if (llm.type === 'gemini') {
+        console.log(`[LLM] Attempting generation with model: ${modelName}`);
+        const model = llm.client.getGenerativeModel({
+          model: modelName,
+          systemInstruction: systemInstruction
+        });
+        
+        const result = await model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          generationConfig: {
+            responseMimeType: 'application/json'
+          }
+        });
+
+        const text = result.response.text();
+        return cleanAndParseJson(text);
+      } else {
+        const response = await llm.client.chat.completions.create({
+          model: llm.modelName,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: systemInstruction },
+            { role: "user", content: userPrompt }
+          ],
+          temperature: 0.2
+        });
+
+        const text = response.choices[0].message.content;
+        return cleanAndParseJson(text);
+      }
+    } catch (error) {
+      console.warn(`[LLM Warning] Model "${modelName}" failed:`, error.message);
+      lastError = error;
+      
+      // If it's a model error, rate limit (429), or server overload (503), fallback to the next model
+      const isModelError = error.message.includes('404') || 
+                           error.message.includes('503') ||
+                           error.message.includes('429') ||
+                           error.message.includes('Service Unavailable') ||
+                           error.message.includes('quota') ||
+                           error.message.includes('rate limit') ||
+                           error.message.includes('not found') || 
+                           error.message.includes('not supported') ||
+                           error.message.includes('supported methods');
+                           
+      if (isModelError && llm.type === 'gemini') {
+        console.log(`[LLM] Model "${modelName}" failed with temporary error. Trying next fallback...`);
+        continue;
+      }
+      throw error; // Rethrow other errors (like invalid API keys) immediately
+    }
+  }
+  
+  throw new Error(`All LLM models failed. Last error: ${lastError ? lastError.message : 'Unknown error'}`);
+}
+
+// Helper to write logs to callback
+const sendProgress = (config, message) => {
+  const callback = config?.configurable?.progressCallback;
+  if (callback) {
+    callback(message);
+  }
+};
+
+/**
+ * 1. NODE: Ticker Resolution
+ */
+async function tickerResolutionNode(state, config) {
+  sendProgress(config, "Searching for company ticker symbol...");
+  const ticker = await financeService.searchTicker(state.companyName);
+  
+  const log = ticker 
+    ? `Resolved ticker symbol to "${ticker}"` 
+    : `No public stock ticker found for "${state.companyName}". Proceeding as a private company.`;
+  
+  sendProgress(config, log);
+  return {
+    ticker: ticker || null,
+    thoughtLogs: [log]
+  };
+}
+
+/**
+ * 2. NODE: Fetch Financials
+ */
+async function fetchFinancialsNode(state, config) {
+  if (!state.ticker) {
+    const log = "Skipping financial metrics download: No public ticker available.";
+    sendProgress(config, log);
+    return {
+      financialSummary: {},
+      chartData: [],
+      thoughtLogs: [log]
+    };
+  }
+
+  sendProgress(config, `Downloading financial statements and key stats for ${state.ticker}...`);
+  const financialSummary = await financeService.fetchFinancials(state.ticker);
+  
+  sendProgress(config, `Fetching historical stock price chart for ${state.ticker}...`);
+  const chartData = await financeService.fetchHistoricalChart(state.ticker);
+
+  let log = "";
+  if (financialSummary.error) {
+    log = `Failed to download financial statements for ${state.ticker}: ${financialSummary.message}`;
+  } else {
+    log = `Successfully retrieved financial summary for ${state.ticker}. Stock Price: ${financialSummary.currentPrice} ${financialSummary.currency}.`;
+  }
+
+  sendProgress(config, log);
+  return {
+    financialSummary,
+    chartData,
+    thoughtLogs: [log]
+  };
+}
+
+/**
+ * 3. NODE: Web Search Research
+ */
+async function webSearchNode(state, config) {
+  sendProgress(config, `Conducting web research on "${state.companyName}" (market news, competitors, and growth drivers)...`);
+  const searchResults = await searchService.searchCompany(state.companyName);
+  
+  const log = `Retrieved ${searchResults.length} relevant articles/discussions covering market landscape and risk elements.`;
+  sendProgress(config, log);
+  
+  return {
+    searchResults,
+    thoughtLogs: [log]
+  };
+}
+
+/**
+ * 4. NODE: Fundamental Analysis
+ */
+async function analyzeFundamentalsNode(state, config) {
+  sendProgress(config, "Analyzing company fundamentals...");
+  
+  const hasFinancials = state.financialSummary && Object.keys(state.financialSummary).length > 0 && !state.financialSummary.error;
+  
+  const systemInstruction = `You are a Senior Financial Analyst. Analyze the financial metrics of the company and output a structured JSON analysis.
+Response format must be exactly JSON:
+{
+  "strengths": ["list of financial strengths"],
+  "weaknesses": ["list of financial weaknesses"],
+  "metricsSummary": "2-3 sentences summarizing the financial health (solvency, margins, liquidity, valuation)"
+}`;
+
+  let userPrompt = "";
+  if (hasFinancials) {
+    userPrompt = `Company: ${state.companyName} (${state.ticker})
+Financial Summary Data:
+${JSON.stringify(state.financialSummary, null, 2)}
+
+Provide an expert assessment of their balance sheet, debt-to-equity ratios, profit margins, and revenue growth.`;
+  } else {
+    userPrompt = `Company: ${state.companyName} (Private/Unlisted)
+Web Search Findings:
+${JSON.stringify(state.searchResults, null, 2)}
+
+As this is a private company with no public stock filings, analyze its apparent business scale, market presence, and financial traction based on web research.`;
+  }
+
+  const analysis = await callLLMJson(systemInstruction, userPrompt);
+  const log = `Completed fundamental analysis: ${analysis.metricsSummary}`;
+  sendProgress(config, "Fundamentals analysis completed.");
+  
+  return {
+    fundamentalAnalysis: analysis,
+    thoughtLogs: [log]
+  };
+}
+
+/**
+ * 5. NODE: Sentiment & Risk Analysis
+ */
+async function analyzeSentimentNode(state, config) {
+  sendProgress(config, "Evaluating news sentiment and competitive risks...");
+  
+  const systemInstruction = `You are a Market Researcher and Risk Analyst. Analyze recent news, market trends, and risk factors of the company and output a structured JSON analysis.
+Response format must be exactly JSON:
+{
+  "opportunities": ["list of market opportunities/drivers"],
+  "threats": ["list of risks/threats/competitors"],
+  "sentiment": "Positive" | "Negative" | "Neutral",
+  "marketSentimentSummary": "2-3 sentences summarizing current sentiment and risk profile"
+}`;
+
+  const userPrompt = `Company: ${state.companyName}
+Web Search Findings:
+${JSON.stringify(state.searchResults, null, 2)}
+
+Identify key competitor dynamics, macroeconomic headwind factors, executive changes, and general news sentiment.`;
+
+  const analysis = await callLLMJson(systemInstruction, userPrompt);
+  const log = `Completed sentiment/risk analysis. Sentiment: ${analysis.sentiment}. Summary: ${analysis.marketSentimentSummary}`;
+  sendProgress(config, "Sentiment & risk evaluation completed.");
+  
+  return {
+    sentimentAnalysis: analysis,
+    thoughtLogs: [log]
+  };
+}
+
+/**
+ * 6. NODE: Synthesize Decision
+ */
+async function synthesizeDecisionNode(state, config) {
+  sendProgress(config, "Synthesizing research data into a final recommendation...");
+  
+  const systemInstruction = `You are a Chief Investment Officer (CIO). Review the financial fundamentals and market sentiment of the company, and make a final investment decision: "Invest" or "Pass".
+Response format must be exactly JSON:
+{
+  "decision": "Invest" or "Pass",
+  "confidence": number between 0 and 100,
+  "riskRating": "Low" or "Medium" or "High",
+  "reasoning": "A detailed, professional markdown report (4-5 paragraphs) explaining the decision. CITE specific financial stats (such as P/E ratio, debt level, cash flows if available) and sentiment trends (competitor actions, industry trends, and regulatory/macro risks) to justify the decision, confidence score, and risk rating. Organize with headings."
+}`;
+
+  const userPrompt = `Company Name: ${state.companyName}
+Stock Ticker: ${state.ticker || 'N/A (Private)'}
+
+--- FINANCIAL ANALYSIS SUMMARY ---
+${JSON.stringify(state.fundamentalAnalysis, null, 2)}
+
+--- SENTIMENT & RISK SUMMARY ---
+${JSON.stringify(state.sentimentAnalysis, null, 2)}
+
+--- DATA METRICS BACKUP ---
+Financial Data: ${JSON.stringify(state.financialSummary)}
+Search Snippets: ${JSON.stringify(state.searchResults)}
+
+Formulate your final investment thesis. Be objective and critical. If data is limited (e.g. private company), adjust confidence and risk rating accordingly and note this in reasoning.`;
+
+  const synthesis = await callLLMJson(systemInstruction, userPrompt);
+  
+  const log = `Final synthesis compiled. Decision: ${synthesis.decision} | Confidence: ${synthesis.confidence}% | Risk: ${synthesis.riskRating}`;
+  sendProgress(config, "Final investment recommendation compiled.");
+  
+  return {
+    decision: synthesis.decision,
+    confidence: synthesis.confidence,
+    riskRating: synthesis.riskRating,
+    reasoning: synthesis.reasoning,
+    thoughtLogs: [log]
+  };
+}
+
+// Compile the StateGraph workflow
+const workflow = new StateGraph(StateAnnotation)
+  .addNode("tickerResolution", tickerResolutionNode)
+  .addNode("fetchFinancials", fetchFinancialsNode)
+  .addNode("webSearch", webSearchNode)
+  .addNode("analyzeFundamentals", analyzeFundamentalsNode)
+  .addNode("analyzeSentiment", analyzeSentimentNode)
+  .addNode("synthesizeDecision", synthesizeDecisionNode)
+  
+  // Establish edge connections
+  .addEdge(START, "tickerResolution")
+  .addEdge("tickerResolution", "fetchFinancials")
+  .addEdge("fetchFinancials", "webSearch")
+  .addEdge("webSearch", "analyzeFundamentals")
+  .addEdge("analyzeFundamentals", "analyzeSentiment")
+  .addEdge("analyzeSentiment", "synthesizeDecision")
+  .addEdge("synthesizeDecision", END);
+
+const app = workflow.compile();
+
+export const agentGraph = {
+  /**
+   * Run the complete investment research workflow for a company
+   * @param {string} companyName 
+   * @param {function} progressCallback Callback function to stream real-time logs
+   * @returns {Promise<object>} Final output state
+   */
+  async run(companyName, progressCallback) {
+    console.log(`[AgentGraph] Starting execution graph for: "${companyName}"`);
+    
+    // Invoke graph, passing our custom progress callback via config
+    const finalState = await app.invoke(
+      { companyName },
+      {
+        configurable: {
+          progressCallback
+        }
+      }
+    );
+    
+    return finalState;
+  }
+};
