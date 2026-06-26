@@ -104,19 +104,21 @@ const StateAnnotation = Annotation.Root({
 });
 
 /**
- * Resolves the LLM client based on .env configuration
- */
-/**
  * Resolves the LLM clients based on .env configuration
+ * Supports multiple comma-separated Gemini API keys for automatic key-rotation failover
  */
 function getLLMClients() {
-  const geminiKey = process.env.GEMINI_API_KEY;
+  const geminiKeyRaw = process.env.GEMINI_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
   const clients = [];
 
-  const geminiClient = geminiKey ? {
+  const geminiKeys = geminiKeyRaw
+    ? geminiKeyRaw.split(',').map(k => k.trim()).filter(Boolean)
+    : [];
+
+  const geminiClients = geminiKeys.map((key) => ({
     type: 'gemini',
-    client: new GoogleGenerativeAI(geminiKey),
+    client: new GoogleGenerativeAI(key),
     modelNames: [
       process.env.GEMINI_MODEL || 'gemini-2.5-flash',
       'gemini-2.5-flash',
@@ -126,7 +128,7 @@ function getLLMClients() {
       'gemini-3.5-flash',
       'gemini-2.5-pro'
     ]
-  } : null;
+  }));
 
   const openaiClient = openaiKey ? {
     type: 'openai',
@@ -141,11 +143,11 @@ function getLLMClients() {
   const primaryProvider = process.env.DEFAULT_PROVIDER || 'gemini';
 
   if (primaryProvider === 'gemini') {
-    if (geminiClient) clients.push(geminiClient);
+    clients.push(...geminiClients);
     if (openaiClient) clients.push(openaiClient);
   } else {
     if (openaiClient) clients.push(openaiClient);
-    if (geminiClient) clients.push(geminiClient);
+    clients.push(...geminiClients);
   }
 
   return clients;
