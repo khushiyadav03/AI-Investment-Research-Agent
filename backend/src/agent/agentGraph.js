@@ -354,7 +354,19 @@ async function fetchFinancialsNode(state, config) {
  */
 async function webSearchNode(state, config) {
   sendProgress(config, `Conducting web research on "${state.companyName}" (market news, competitors, and growth drivers)...`);
-  const searchResults = await searchService.searchCompany(state.companyName);
+  let searchResults = await searchService.searchCompany(state.companyName);
+  
+  // Filter search results to ensure they are relevant to the query name
+  const queryLower = state.companyName.toLowerCase().trim();
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 1);
+  
+  if (searchResults.length > 0 && queryWords.length > 0) {
+    searchResults = searchResults.filter(item => {
+      const titleLower = item.title.toLowerCase();
+      const snippetLower = item.snippet.toLowerCase();
+      return queryWords.some(word => titleLower.includes(word) || snippetLower.includes(word));
+    });
+  }
   
   const log = `Retrieved ${searchResults.length} relevant articles/discussions covering market landscape and risk elements.`;
   sendProgress(config, log);
@@ -372,7 +384,22 @@ async function analyzeFundamentalsNode(state, config) {
   sendProgress(config, "Analyzing company fundamentals...");
   
   const hasFinancials = state.financialSummary && Object.keys(state.financialSummary).length > 0 && !state.financialSummary.error;
+  const hasSearch = state.searchResults && state.searchResults.length > 0;
   
+  if (!hasFinancials && !hasSearch) {
+    const log = `Aborted analysis: No relevant financial or web data found for company "${state.companyName}"`;
+    sendProgress(config, log);
+    return {
+      fundamentalAnalysis: { strengths: [], weaknesses: [], metricsSummary: "No data available." },
+      sentimentAnalysis: { opportunities: [], threats: [], sentiment: "Neutral", marketSentimentSummary: "No news available." },
+      decision: "Pass",
+      confidence: 0,
+      riskRating: "High",
+      reasoning: `# Research Aborted: Company Not Found\n\nNo public stock ticker or relevant web search results were found for "${state.companyName}". We were unable to gather any financial or market data to perform an investment analysis. Please check the spelling of the company name or search for a publicly active business.`,
+      thoughtLogs: [log]
+    };
+  }
+
   const systemInstruction = `You are a Senior Financial Analyst. Analyze the financial metrics of the company and output a structured JSON analysis.
 Response format must be exactly JSON:
 {
@@ -411,6 +438,11 @@ As this is a private company with no public stock filings, analyze its apparent 
  * 5. NODE: Sentiment & Risk Analysis
  */
 async function analyzeSentimentNode(state, config) {
+  // If analysis was aborted, skip execution
+  if (state.reasoning && state.reasoning.startsWith("# Research Aborted")) {
+    return {};
+  }
+
   sendProgress(config, "Evaluating news sentiment and competitive risks...");
   
   const systemInstruction = `You are a Market Researcher and Risk Analyst. Analyze recent news, market trends, and risk factors of the company and output a structured JSON analysis.
@@ -443,6 +475,11 @@ Identify key competitor dynamics, macroeconomic headwind factors, executive chan
  * 6. NODE: Synthesize Decision
  */
 async function synthesizeDecisionNode(state, config) {
+  // If analysis was aborted, skip execution
+  if (state.reasoning && state.reasoning.startsWith("# Research Aborted")) {
+    return {};
+  }
+
   sendProgress(config, "Synthesizing research data into a final recommendation...");
   
   const systemInstruction = `You are a Chief Investment Officer (CIO). Review the financial fundamentals and market sentiment of the company, and make a final investment decision: "Invest" or "Pass".

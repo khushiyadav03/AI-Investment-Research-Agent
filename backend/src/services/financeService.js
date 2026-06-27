@@ -3,6 +3,29 @@ import YahooFinance from 'yahoo-finance2';
 // Suppress Yahoo Finance survey alerts in output
 const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey', 'ripHistorical'] });
 
+function isNameCloseEnough(query, symbol, longName, shortName) {
+  const q = query.toLowerCase().trim();
+  const sym = (symbol || '').toLowerCase().trim();
+  const long = (longName || '').toLowerCase().trim();
+  const short = (shortName || '').toLowerCase().trim();
+
+  // If query is an exact match for the ticker symbol
+  if (q === sym) return true;
+
+  // If query is a substring of the resolved long name or short name
+  if (long.includes(q) || short.includes(q)) return true;
+
+  // If the resolved names contain the query words (to handle word reordering or extra words)
+  const qWords = q.split(/\s+/).filter(w => w.length > 1);
+  if (qWords.length > 0) {
+    const matchesLong = qWords.every(w => long.includes(w));
+    const matchesShort = qWords.every(w => short.includes(w));
+    if (matchesLong || matchesShort) return true;
+  }
+
+  return false;
+}
+
 export const financeService = {
   /**
    * Search for a company stock ticker by name
@@ -17,18 +40,20 @@ export const financeService = {
       if (searchResults && searchResults.quotes && searchResults.quotes.length > 0) {
         // Find the first equity result which is usually the primary ticker
         const equity = searchResults.quotes.find(q => q.quoteType === 'EQUITY');
-        if (equity) {
+        if (equity && isNameCloseEnough(companyName, equity.symbol, equity.longname || equity.name, equity.shortname)) {
           console.log(`[FinanceService] Ticker resolved to: ${equity.symbol} (${equity.longname || equity.shortname})`);
           return equity.symbol;
         }
         
         // Fallback to the absolute first quote
         const firstQuote = searchResults.quotes[0];
-        console.log(`[FinanceService] Ticker resolved to fallback: ${firstQuote.symbol}`);
-        return firstQuote.symbol;
+        if (firstQuote && isNameCloseEnough(companyName, firstQuote.symbol, firstQuote.longname || firstQuote.name, firstQuote.shortname)) {
+          console.log(`[FinanceService] Ticker resolved to fallback: ${firstQuote.symbol}`);
+          return firstQuote.symbol;
+        }
       }
       
-      console.log(`[FinanceService] No ticker found for: "${companyName}"`);
+      console.log(`[FinanceService] No matching ticker found for: "${companyName}"`);
       return null;
     } catch (error) {
       console.error(`[FinanceService] Error searching ticker for "${companyName}":`, error.message);
