@@ -28,6 +28,109 @@ function isNameCloseEnough(query, symbol, longName, shortName) {
 
 export const financeService = {
   /**
+   * Search Yahoo Finance and return multiple candidate company matches
+   * @param {string} companyName
+   * @param {number} limit
+   * @returns {Promise<Array<{symbol: string, name: string, longName: string, shortName: string, quoteType: string, exchange: string}>>}
+   */
+  async searchCompanies(companyName, limit = 8) {
+    try {
+      console.log(`[FinanceService] Searching companies for: "${companyName}"`);
+      const searchResults = await yahooFinance.search(companyName);
+
+      if (!searchResults?.quotes?.length) {
+        return [];
+      }
+
+      const seen = new Set();
+      const matches = [];
+
+      for (const quote of searchResults.quotes) {
+        if (!quote?.symbol || seen.has(quote.symbol)) continue;
+        seen.add(quote.symbol);
+
+        matches.push({
+          symbol: quote.symbol,
+          name: quote.name || quote.shortname || quote.longname || quote.symbol,
+          longName: quote.longname || quote.name || quote.shortname || quote.symbol,
+          shortName: quote.shortname || quote.name || quote.symbol,
+          quoteType: quote.quoteType || 'UNKNOWN',
+          exchange: quote.exchange || quote.exchDisp || ''
+        });
+
+        if (matches.length >= limit) break;
+      }
+
+      return matches;
+    } catch (error) {
+      console.error(`[FinanceService] Error searching companies for "${companyName}":`, error.message);
+      return [];
+    }
+  },
+
+  /**
+   * Cross-check whether a company/ticker actually exists in Yahoo Finance
+   * @param {string} companyName
+   * @param {string|null} ticker
+   * @returns {Promise<{verified: boolean, ticker: string|null, officialName: string|null, quoteType: string|null, source: string}>}
+   */
+  async verifyCompany(companyName, ticker = null) {
+    try {
+      const query = ticker || companyName;
+      const candidates = await this.searchCompanies(query, 10);
+
+      if (candidates.length === 0) {
+        return { verified: false, ticker: null, officialName: null, quoteType: null, source: 'yahoo_finance' };
+      }
+
+      if (ticker) {
+        const tickerMatch = candidates.find(
+          (c) => c.symbol.toLowerCase() === ticker.toLowerCase()
+        );
+        if (tickerMatch) {
+          return {
+            verified: true,
+            ticker: tickerMatch.symbol,
+            officialName: tickerMatch.longName || tickerMatch.name,
+            quoteType: tickerMatch.quoteType,
+            source: 'yahoo_finance'
+          };
+        }
+      }
+
+      const nameMatch = candidates.find((c) =>
+        isNameCloseEnough(companyName, c.symbol, c.longName, c.shortName)
+      );
+
+      if (nameMatch) {
+        return {
+          verified: true,
+          ticker: nameMatch.quoteType === 'EQUITY' ? nameMatch.symbol : null,
+          officialName: nameMatch.longName || nameMatch.name,
+          quoteType: nameMatch.quoteType,
+          source: 'yahoo_finance'
+        };
+      }
+
+      const equity = candidates.find((c) => c.quoteType === 'EQUITY');
+      if (equity && ticker && equity.symbol.toLowerCase() === ticker.toLowerCase()) {
+        return {
+          verified: true,
+          ticker: equity.symbol,
+          officialName: equity.longName || equity.name,
+          quoteType: equity.quoteType,
+          source: 'yahoo_finance'
+        };
+      }
+
+      return { verified: false, ticker: null, officialName: null, quoteType: null, source: 'yahoo_finance' };
+    } catch (error) {
+      console.error(`[FinanceService] Error verifying company "${companyName}":`, error.message);
+      return { verified: false, ticker: null, officialName: null, quoteType: null, source: 'yahoo_finance' };
+    }
+  },
+
+  /**
    * Search for a company stock ticker by name
    * @param {string} companyName 
    * @returns {Promise<string|null>} Stock ticker symbol or null

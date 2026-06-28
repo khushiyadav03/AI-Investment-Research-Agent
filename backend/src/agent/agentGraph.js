@@ -80,16 +80,84 @@ const synthesisDecisionSchema = {
   required: ["decision", "confidence", "riskRating", "reasoning"]
 };
 
+const companyResolutionSchema = {
+  type: "object",
+  properties: {
+    matched: {
+      type: "boolean",
+      description: "Whether a real, publicly-known company was identified"
+    },
+    companyName: {
+      type: "string",
+      description: "The canonical official company name, or empty string if not matched"
+    },
+    ticker: {
+      type: "string",
+      description: "Stock ticker symbol if publicly listed, or empty string if private/unlisted"
+    },
+    confidence: {
+      type: "string",
+      enum: ["high", "medium", "low"],
+      description: "Confidence in the company match"
+    },
+    alternativeMatches: {
+      type: "array",
+      items: { type: "string" },
+      description: "Other plausible company names the user might have meant"
+    },
+    reasoning: {
+      type: "string",
+      description: "Explanation of how the input was interpreted and matched"
+    },
+    isPubliclyListed: {
+      type: "boolean",
+      description: "Whether the company appears to be publicly traded on a stock exchange"
+    }
+  },
+  required: ["matched", "confidence", "alternativeMatches", "reasoning", "isPubliclyListed"]
+};
+
+const limitedDataSummarySchema = {
+  type: "object",
+  properties: {
+    businessDescription: {
+      type: "string",
+      description: "Brief description of what the company does"
+    },
+    fundingStatus: {
+      type: "string",
+      description: "Known funding stage, ownership, or listing status"
+    },
+    qualitativeHighlights: {
+      type: "array",
+      items: { type: "string" },
+      description: "Key qualitative facts available from web research"
+    },
+    reasoning: {
+      type: "string",
+      description: "Markdown explanation of why a full investment decision cannot be made"
+    }
+  },
+  required: ["businessDescription", "fundingStatus", "qualitativeHighlights", "reasoning"]
+};
+
 // Define the State schema using LangGraph's Annotation
 const StateAnnotation = Annotation.Root({
   companyName: Annotation(),
+  originalUserInput: Annotation(),
   ticker: Annotation(),
   financialSummary: Annotation(),
   chartData: Annotation(),
   searchResults: Annotation(),
   fundamentalAnalysis: Annotation(),
   sentimentAnalysis: Annotation(),
-  
+
+  // Company resolution
+  companyResolution: Annotation(),
+  resolutionStatus: Annotation(),
+  resolvedCompany: Annotation(),
+  companyVerified: Annotation(),
+
   // Final outputs
   decision: Annotation(),
   confidence: Annotation(),
@@ -296,20 +364,382 @@ const sendProgress = (config, message) => {
   }
 };
 
+function hasUsableFinancials(financialSummary) {
+  return financialSummary
+    && Object.keys(financialSummary).length > 0
+    && !financialSummary.error
+    && financialSummary.currentPrice != null;
+}
+
+function hasSearchResults(searchResults) {
+  return searchResults && searchResults.length > 0;
+}
+
+/**
+ * 0. NODE: Company Resolution (LLM + external verification)
+ */
+async function companyResolutionNode(state, config) {
+  const rawInput = state.originalUserInput || state.companyName;
+  sendProgress(config, `Resolving company identity for "${rawInput}"...`);
+
+  const systemInstruction = `You are a company identification specialist for an investment research platform.
+Given a raw user query (which may contain typos, abbreviations, or informal names), identify the most likely real, publicly-known company or organization they mean.
+
+Rules:
+- Handle common typos and fuzzy matches (e.g. "bjyus" -> "Byju's", "nvida" -> "Nvidia").
+- If the input is gibberish or refers to no real company, set matched=false and confidence="low".
+- If multiple distinct companies could match, list them in alternativeMatches and use confidence="medium".
+- Only set confidence="high" when you are very confident about a single specific company.
+- For private/unlisted companies (e.g. Stripe, Byju's), set isPubliclyListed=false and ticker to empty string, but still match if they are well-known.
+- Do NOT invent companies. If unsure, prefer matched=false or confidence="medium"/"low".
+- reasoning must explain your interpretation clearly for audit purposes.
+
+Output JSON only with fields: matched, companyName, ticker, confidence, alternativeMatches, reasoning, isPubliclyListed.`;
+
+  const userPrompt = `User input: "${rawInput}"
+
+Identify the most likely real company this refers to.`;
+
+  const llmResolution = await callLLMJson(systemInstruction, userPrompt, companyResolutionSchema);
+
+  const normalizedResolution = {
+    matched: Boolean(llmResolution.matched),
+    companyName: llmResolution.companyName?.trim() || null,
+    ticker: llmResolution.ticker?.trim() || null,
+    confidence: llmResolution.confidence || 'low',
+    alternativeMatches: Array.isArray(llmResolution.alternativeMatches) ? llmResolution.alternativeMatches : [],
+    reasoning: llmResolution.reasoning || '',
+    isPubliclyListed: Boolean(llmResolution.isPubliclyListed)
+  };
+
+  sendProgress(config, `LLM resolution: ${normalizedResolution.matched ? normalizedResolution.companyName : 'no match'} (confidence: ${normalizedResolution.confidence})`);
+
+  let verified = false;
+  let verificationSource = 'none';
+  let verifiedTicker = normalizedResolution.ticker;
+  let verifiedName = normalizedResolution.companyName;
+
+  if (normalizedResolution.matched && normalizedResolution.companyName) {
+    sendProgress(config, `Cross-checking "${normalizedResolution.companyName}" against Yahoo Finance...`);
+    const yahooCheck = await financeService.verifyCompany(
+      normalizedResolution.companyName,
+      normalizedResolution.ticker
+    );
+
+    if (yahooCheck.verified) {
+      verified = true;
+      verificationSource = yahooCheck.source;
+      verifiedName = yahooCheck.officialName || normalizedResolution.companyName;
+      if (yahooCheck.ticker) {
+        verifiedTicker = yahooCheck.ticker;
+        normalizedResolution.isPubliclyListed = true;
+      }
+    } else if (!normalizedResolution.isPubliclyListed) {
+      sendProgress(config, `No public ticker found; verifying private company via web search...`);
+      const webResults = await searchService.search(
+        `"${normalizedResolution.companyName}" company official`,
+        3
+      );
+      const nameLower = normalizedResolution.companyName.toLowerCase();
+      const nameWords = nameLower.split(/\s+/).filter((w) => w.length > 2);
+      const webVerified = webResults.some((r) => {
+        const text = `${r.title} ${r.snippet}`.toLowerCase();
+        return nameWords.some((w) => text.includes(w));
+      });
+      if (webVerified) {
+        verified = true;
+        verificationSource = 'web_search';
+      }
+    }
+  }
+
+  const resolutionLog = [
+    `Company Resolution for "${rawInput}": matched=${normalizedResolution.matched}, confidence=${normalizedResolution.confidence}, verified=${verified}`,
+    `LLM reasoning: ${normalizedResolution.reasoning}`,
+    verified
+      ? `Verified via ${verificationSource}: "${verifiedName}"${verifiedTicker ? ` (${verifiedTicker})` : ' (private/unlisted)'}`
+      : `Verification failed — could not confirm company exists in external data sources`
+  ].join('\n');
+
+  sendProgress(config, verified
+    ? `Verified company: ${verifiedName}${verifiedTicker ? ` (${verifiedTicker})` : ''}`
+    : `Could not verify company existence for "${rawInput}"`);
+
+  const resolvedCompany = normalizedResolution.matched ? {
+    companyName: verifiedName || normalizedResolution.companyName,
+    ticker: verifiedTicker,
+    confidence: normalizedResolution.confidence,
+    verified,
+    isPubliclyListed: normalizedResolution.isPubliclyListed,
+    originalInput: rawInput
+  } : null;
+
+  return {
+    companyResolution: normalizedResolution,
+    companyVerified: verified,
+    resolvedCompany,
+    companyName: verified && verifiedName ? verifiedName : state.companyName,
+    thoughtLogs: [resolutionLog]
+  };
+}
+
+/**
+ * Routing after company resolution
+ */
+function routeAfterResolution(state) {
+  const resolution = state.companyResolution;
+  if (!resolution) return 'notFoundResponse';
+
+  if (!resolution.matched || resolution.confidence === 'low' || !state.companyVerified) {
+    return 'notFoundResponse';
+  }
+
+  if (
+    resolution.confidence === 'medium'
+    || (resolution.alternativeMatches && resolution.alternativeMatches.length > 0)
+  ) {
+    return 'ambiguousResponse';
+  }
+
+  if (resolution.confidence === 'high' && state.companyVerified) {
+    return 'tickerResolution';
+  }
+
+  return 'notFoundResponse';
+}
+
+/**
+ * NODE: Not Found — stop pipeline immediately
+ */
+async function notFoundResponseNode(state, config) {
+  const rawInput = state.originalUserInput || state.companyName;
+  const resolution = state.companyResolution || {};
+  const alternatives = resolution.alternativeMatches || [];
+
+  sendProgress(config, `Company not found: could not identify a real company matching "${rawInput}".`);
+
+  const reasoning = `# Company Not Found
+
+We couldn't confidently identify a real company matching **"${rawInput}"**.
+
+${resolution.reasoning ? `**Resolution notes:** ${resolution.reasoning}` : ''}
+
+Please check the spelling or try the official company or ticker name.`;
+
+  return {
+    resolutionStatus: 'not_found',
+    decision: 'Unresolved',
+    confidence: 0,
+    riskRating: 'N/A',
+    reasoning,
+    financialSummary: {},
+    chartData: [],
+    searchResults: [],
+    fundamentalAnalysis: {},
+    sentimentAnalysis: {},
+    thoughtLogs: [`Pipeline halted: company not found for "${rawInput}". Alternatives: ${alternatives.join(', ') || 'none'}`]
+  };
+}
+
+/**
+ * NODE: Ambiguous — stop pipeline, ask user to disambiguate
+ */
+async function ambiguousResponseNode(state, config) {
+  const rawInput = state.originalUserInput || state.companyName;
+  const resolution = state.companyResolution || {};
+  const resolved = state.resolvedCompany || {};
+  const alternatives = resolution.alternativeMatches || [];
+
+  sendProgress(config, `Ambiguous match for "${rawInput}" — user confirmation required.`);
+
+  const primaryName = resolved.companyName || resolution.companyName;
+  const listingNote = resolution.isPubliclyListed
+    ? (resolved.ticker ? ` (${resolved.ticker})` : '')
+    : ' — not publicly listed, so research will be limited';
+
+  const reasoning = `# Did You Mean This Company?
+
+Your search for **"${rawInput}"** could match multiple companies or needs confirmation.
+
+**Most likely match:** ${primaryName}${listingNote}
+
+${resolution.reasoning ? `**Why:** ${resolution.reasoning}` : ''}
+
+Please confirm which company you meant, or refine your search using the official company or ticker name.`;
+
+  return {
+    resolutionStatus: 'ambiguous',
+    decision: 'Unresolved',
+    confidence: 0,
+    riskRating: 'N/A',
+    reasoning,
+    financialSummary: {},
+    chartData: [],
+    searchResults: [],
+    fundamentalAnalysis: {},
+    sentimentAnalysis: {},
+    thoughtLogs: [`Pipeline halted: ambiguous match for "${rawInput}". Candidates: ${[primaryName, ...alternatives].filter(Boolean).join('; ')}`]
+  };
+}
+
+/**
+ * NODE: Limited Data — company identified but no usable research data
+ */
+async function limitedDataResponseNode(state, config) {
+  const company = state.resolvedCompany?.companyName || state.companyName;
+  sendProgress(config, `Insufficient data for ${company} — generating qualitative summary only.`);
+
+  const hasSearch = hasSearchResults(state.searchResults);
+
+  let summary;
+  if (hasSearch) {
+    const systemInstruction = `You are a business research analyst. The company was identified but lacks public financial data (likely private or obscure). Summarize what qualitative information IS available from web research. Do NOT fabricate financial metrics. Output JSON only.`;
+    const userPrompt = `Company: ${company}
+Ticker: ${state.ticker || 'None (private/unlisted)'}
+
+Web Research:
+${JSON.stringify(state.searchResults, null, 2)}
+
+Provide a qualitative summary only.`;
+
+    summary = await callLLMJson(systemInstruction, userPrompt, limitedDataSummarySchema);
+  } else {
+    summary = {
+      businessDescription: `${company} was identified but no financial or web research data could be retrieved.`,
+      fundingStatus: state.resolvedCompany?.isPubliclyListed === false
+        ? 'Appears to be privately held or not publicly traded.'
+        : 'Listing status unknown.',
+      qualitativeHighlights: [],
+      reasoning: `No public financial filings or relevant web articles were found for **${company}**.`
+    };
+  }
+
+  const reasoning = `# Limited Data Available
+
+**${company}** was identified, but sufficient financial data isn't available to generate an investment decision (e.g. it may be privately held or not publicly traded).
+
+## Business Overview
+${summary.businessDescription}
+
+## Ownership / Listing Status
+${summary.fundingStatus}
+
+${summary.qualitativeHighlights?.length > 0 ? `## Available Qualitative Information\n${summary.qualitativeHighlights.map((h) => `- ${h}`).join('\n')}` : ''}
+
+${summary.reasoning}`;
+
+  sendProgress(config, `Qualitative summary compiled for ${company} (no investment decision generated).`);
+
+  return {
+    resolutionStatus: 'limited_data',
+    decision: 'Unavailable',
+    confidence: 0,
+    riskRating: 'N/A',
+    reasoning,
+    fundamentalAnalysis: {
+      strengths: summary.qualitativeHighlights || [],
+      weaknesses: [],
+      metricsSummary: summary.businessDescription
+    },
+    sentimentAnalysis: {
+      opportunities: [],
+      threats: [],
+      sentiment: 'Neutral',
+      marketSentimentSummary: summary.fundingStatus
+    },
+    thoughtLogs: [`Limited data path: ${company} identified but insufficient data for full investment analysis.`]
+  };
+}
+
+/**
+ * Routing after sentiment — skip full synthesis if no financials
+ */
+function routeAfterSentiment(state) {
+  if (state.resolutionStatus === 'limited_data') {
+    return END;
+  }
+
+  const hasFinancials = hasUsableFinancials(state.financialSummary);
+
+  if (!hasFinancials) {
+    return 'limitedDataFinalize';
+  }
+
+  return 'synthesizeDecision';
+}
+
+/**
+ * NODE: Limited Data Finalize — partial web-based analysis without Invest/Pass decision
+ */
+async function limitedDataFinalizeNode(state, config) {
+  const company = state.resolvedCompany?.companyName || state.companyName;
+  sendProgress(config, `Compiling qualitative research report for ${company} (no financial metrics available)...`);
+
+  const systemInstruction = `You are a business research analyst. Summarize qualitative findings for a company that lacks public financial data. Do NOT assign Invest/Pass decisions or confidence scores. Do NOT invent financial metrics. Output JSON only.`;
+
+  const userPrompt = `Company: ${company}
+
+Fundamental Analysis:
+${JSON.stringify(state.fundamentalAnalysis, null, 2)}
+
+Sentiment Analysis:
+${JSON.stringify(state.sentimentAnalysis, null, 2)}
+
+Web Research:
+${JSON.stringify(state.searchResults, null, 2)}
+
+Provide a qualitative summary explaining why a full investment decision cannot be made.`;
+
+  const summary = await callLLMJson(systemInstruction, userPrompt, limitedDataSummarySchema);
+
+  const reasoning = `# Limited Data Available
+
+**${company}** was identified, but sufficient financial data isn't available to generate an investment decision (e.g. it may be privately held or not publicly traded).
+
+## Business Overview
+${summary.businessDescription}
+
+## Ownership / Listing Status
+${summary.fundingStatus}
+
+${summary.qualitativeHighlights?.length > 0 ? `## Available Qualitative Information\n${summary.qualitativeHighlights.map((h) => `- ${h}`).join('\n')}` : ''}
+
+${summary.reasoning}`;
+
+  sendProgress(config, `Qualitative report ready for ${company}.`);
+
+  return {
+    resolutionStatus: 'limited_data',
+    decision: 'Unavailable',
+    confidence: 0,
+    riskRating: 'N/A',
+    reasoning,
+    thoughtLogs: [`Limited data finalize: qualitative report for ${company} without investment decision.`]
+  };
+}
+
 /**
  * 1. NODE: Ticker Resolution
  */
 async function tickerResolutionNode(state, config) {
   sendProgress(config, "Searching for company ticker symbol...");
-  const ticker = await financeService.searchTicker(state.companyName);
+  const resolvedName = state.resolvedCompany?.companyName || state.companyName;
+  const preResolvedTicker = state.resolvedCompany?.ticker;
+
+  let ticker = preResolvedTicker || null;
+  if (!ticker) {
+    ticker = await financeService.searchTicker(resolvedName);
+  }
   
   const log = ticker 
-    ? `Resolved ticker symbol to "${ticker}"` 
-    : `No public stock ticker found for "${state.companyName}". Proceeding as a private company.`;
+    ? `Resolved ticker symbol to "${ticker}" for ${resolvedName}` 
+    : `No public stock ticker found for "${resolvedName}". Proceeding as a private company.`;
   
   sendProgress(config, log);
   return {
+    resolutionStatus: 'resolved',
     ticker: ticker || null,
+    companyName: resolvedName,
     thoughtLogs: [log]
   };
 }
@@ -353,11 +783,12 @@ async function fetchFinancialsNode(state, config) {
  * 3. NODE: Web Search Research
  */
 async function webSearchNode(state, config) {
-  sendProgress(config, `Conducting web research on "${state.companyName}" (market news, competitors, and growth drivers)...`);
-  let searchResults = await searchService.searchCompany(state.companyName);
+  const searchName = state.resolvedCompany?.companyName || state.companyName;
+  sendProgress(config, `Conducting web research on "${searchName}" (market news, competitors, and growth drivers)...`);
+  let searchResults = await searchService.searchCompany(searchName);
   
   // Filter search results to ensure they are relevant to the query name
-  const queryLower = state.companyName.toLowerCase().trim();
+  const queryLower = searchName.toLowerCase().trim();
   const queryWords = queryLower.split(/\s+/).filter(w => w.length > 1);
   
   if (searchResults.length > 0 && queryWords.length > 0) {
@@ -383,22 +814,9 @@ async function webSearchNode(state, config) {
 async function analyzeFundamentalsNode(state, config) {
   sendProgress(config, "Analyzing company fundamentals...");
   
-  const hasFinancials = state.financialSummary && Object.keys(state.financialSummary).length > 0 && !state.financialSummary.error;
-  const hasSearch = state.searchResults && state.searchResults.length > 0;
-  
-  if (!hasFinancials && !hasSearch) {
-    const log = `Aborted analysis: No relevant financial or web data found for company "${state.companyName}"`;
-    sendProgress(config, log);
-    return {
-      fundamentalAnalysis: { strengths: [], weaknesses: [], metricsSummary: "No data available." },
-      sentimentAnalysis: { opportunities: [], threats: [], sentiment: "Neutral", marketSentimentSummary: "No news available." },
-      decision: "Pass",
-      confidence: 0,
-      riskRating: "High",
-      reasoning: `# Research Aborted: Company Not Found\n\nNo public stock ticker or relevant web search results were found for "${state.companyName}". We were unable to gather any financial or market data to perform an investment analysis. Please check the spelling of the company name or search for a publicly active business.`,
-      thoughtLogs: [log]
-    };
-  }
+  const hasFinancials = hasUsableFinancials(state.financialSummary);
+  const hasSearch = hasSearchResults(state.searchResults);
+  const company = state.resolvedCompany?.companyName || state.companyName;
 
   const systemInstruction = `You are a Senior Financial Analyst. Analyze the financial metrics of the company and output a structured JSON analysis.
 Response format must be exactly JSON:
@@ -411,17 +829,17 @@ CRITICAL: Do not include unescaped double quotes inside the JSON string values. 
 
   let userPrompt = "";
   if (hasFinancials) {
-    userPrompt = `Company: ${state.companyName} (${state.ticker})
+    userPrompt = `Company: ${company} (${state.ticker})
 Financial Summary Data:
 ${JSON.stringify(state.financialSummary, null, 2)}
 
 Provide an expert assessment of their balance sheet, debt-to-equity ratios, profit margins, and revenue growth.`;
   } else {
-    userPrompt = `Company: ${state.companyName} (Private/Unlisted)
+    userPrompt = `Company: ${company} (Private/Unlisted)
 Web Search Findings:
 ${JSON.stringify(state.searchResults, null, 2)}
 
-As this is a private company with no public stock filings, analyze its apparent business scale, market presence, and financial traction based on web research.`;
+As this is a private company with no public stock filings, analyze its apparent business scale, market presence, and financial traction based on web research only. Do NOT invent specific financial metrics.`;
   }
 
   const analysis = await callLLMJson(systemInstruction, userPrompt, fundamentalAnalysisSchema);
@@ -438,13 +856,13 @@ As this is a private company with no public stock filings, analyze its apparent 
  * 5. NODE: Sentiment & Risk Analysis
  */
 async function analyzeSentimentNode(state, config) {
-  // If analysis was aborted, skip execution
-  if (state.reasoning && state.reasoning.startsWith("# Research Aborted")) {
+  if (state.resolutionStatus === 'limited_data') {
     return {};
   }
 
   sendProgress(config, "Evaluating news sentiment and competitive risks...");
   
+  const company = state.resolvedCompany?.companyName || state.companyName;
   const systemInstruction = `You are a Market Researcher and Risk Analyst. Analyze recent news, market trends, and risk factors of the company and output a structured JSON analysis.
 Response format must be exactly JSON:
 {
@@ -455,7 +873,7 @@ Response format must be exactly JSON:
 }
 CRITICAL: Do not include unescaped double quotes inside the JSON string values. If you need to use quotes inside a text string, use single quotes instead (e.g., 'quote' instead of \"quote\").`;
 
-  const userPrompt = `Company: ${state.companyName}
+  const userPrompt = `Company: ${company}
 Web Search Findings:
 ${JSON.stringify(state.searchResults, null, 2)}
 
@@ -475,13 +893,13 @@ Identify key competitor dynamics, macroeconomic headwind factors, executive chan
  * 6. NODE: Synthesize Decision
  */
 async function synthesizeDecisionNode(state, config) {
-  // If analysis was aborted, skip execution
-  if (state.reasoning && state.reasoning.startsWith("# Research Aborted")) {
+  if (state.resolutionStatus === 'limited_data') {
     return {};
   }
 
   sendProgress(config, "Synthesizing research data into a final recommendation...");
   
+  const company = state.resolvedCompany?.companyName || state.companyName;
   const systemInstruction = `You are a Chief Investment Officer (CIO). Review the financial fundamentals and market sentiment of the company, and make a final investment decision: "Invest" or "Pass".
 Response format must be exactly JSON:
 {
@@ -492,7 +910,7 @@ Response format must be exactly JSON:
 }
 CRITICAL: Do not include unescaped double quotes inside the JSON string values. If you need to use quotes inside a text string, use single quotes instead (e.g., 'quote' instead of \"quote\").`;
 
-  const userPrompt = `Company Name: ${state.companyName}
+  const userPrompt = `Company Name: ${company}
 Stock Ticker: ${state.ticker || 'N/A (Private)'}
 
 --- FINANCIAL ANALYSIS SUMMARY ---
@@ -513,6 +931,7 @@ Formulate your final investment thesis. Be objective and critical. If data is li
   sendProgress(config, "Final investment recommendation compiled.");
   
   return {
+    resolutionStatus: 'resolved',
     decision: synthesis.decision,
     confidence: synthesis.confidence,
     riskRating: synthesis.riskRating,
@@ -521,22 +940,52 @@ Formulate your final investment thesis. Be objective and critical. If data is li
   };
 }
 
+function routeAfterWebSearch(state) {
+  const hasFinancials = hasUsableFinancials(state.financialSummary);
+  const hasSearch = hasSearchResults(state.searchResults);
+
+  if (!hasFinancials && !hasSearch) {
+    return 'limitedDataResponse';
+  }
+
+  return 'analyzeFundamentals';
+}
+
 // Compile the StateGraph workflow
 const workflow = new StateGraph(StateAnnotation)
+  .addNode("resolveCompany", companyResolutionNode)
+  .addNode("notFoundResponse", notFoundResponseNode)
+  .addNode("ambiguousResponse", ambiguousResponseNode)
   .addNode("tickerResolution", tickerResolutionNode)
   .addNode("fetchFinancials", fetchFinancialsNode)
   .addNode("webSearch", webSearchNode)
+  .addNode("limitedDataResponse", limitedDataResponseNode)
+  .addNode("limitedDataFinalize", limitedDataFinalizeNode)
   .addNode("analyzeFundamentals", analyzeFundamentalsNode)
   .addNode("analyzeSentiment", analyzeSentimentNode)
   .addNode("synthesizeDecision", synthesizeDecisionNode)
-  
-  // Establish edge connections
-  .addEdge(START, "tickerResolution")
+
+  .addEdge(START, "resolveCompany")
+  .addConditionalEdges("resolveCompany", routeAfterResolution, {
+    tickerResolution: "tickerResolution",
+    notFoundResponse: "notFoundResponse",
+    ambiguousResponse: "ambiguousResponse"
+  })
+  .addEdge("notFoundResponse", END)
+  .addEdge("ambiguousResponse", END)
   .addEdge("tickerResolution", "fetchFinancials")
   .addEdge("fetchFinancials", "webSearch")
-  .addEdge("webSearch", "analyzeFundamentals")
+  .addConditionalEdges("webSearch", routeAfterWebSearch, {
+    limitedDataResponse: "limitedDataResponse",
+    analyzeFundamentals: "analyzeFundamentals"
+  })
+  .addEdge("limitedDataResponse", END)
   .addEdge("analyzeFundamentals", "analyzeSentiment")
-  .addEdge("analyzeSentiment", "synthesizeDecision")
+  .addConditionalEdges("analyzeSentiment", routeAfterSentiment, {
+    limitedDataFinalize: "limitedDataFinalize",
+    synthesizeDecision: "synthesizeDecision"
+  })
+  .addEdge("limitedDataFinalize", END)
   .addEdge("synthesizeDecision", END);
 
 const app = workflow.compile();
@@ -551,9 +1000,11 @@ export const agentGraph = {
   async run(companyName, progressCallback) {
     console.log(`[AgentGraph] Starting execution graph for: "${companyName}"`);
     
-    // Invoke graph, passing our custom progress callback via config
     const finalState = await app.invoke(
-      { companyName },
+      {
+        companyName,
+        originalUserInput: companyName
+      },
       {
         configurable: {
           progressCallback

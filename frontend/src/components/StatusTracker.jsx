@@ -6,39 +6,45 @@ export default function StatusTracker({ currentLog, logs }) {
   const steps = [
     {
       id: 1,
+      label: "Company Resolution",
+      desc: "Identifying the company from your input and verifying it exists.",
+      detect: (log) => log.includes("Resolving company") || log.includes("resolution") || log.includes("Verified company") || log.includes("Could not verify")
+    },
+    {
+      id: 2,
       label: "Ticker Resolution",
       desc: "Resolving company name to a stock market ticker symbol.",
       detect: (log) => log.includes("ticker") || log.includes("Ticker")
     },
     {
-      id: 2,
+      id: 3,
       label: "Financial Statements Fetch",
       desc: "Downloading cash flow sheets, balance sheets, and key ratios.",
       detect: (log) => log.includes("financial") || log.includes("ratios") || log.includes("statements") || log.includes("chart")
     },
     {
-      id: 3,
+      id: 4,
       label: "Web Sentiment & competitor Research",
       desc: "Scraping news headlines, market drivers, and competitor threats.",
       detect: (log) => log.includes("web research") || log.includes("articles") || log.includes("scraping")
     },
     {
-      id: 4,
+      id: 5,
       label: "AI Fundamentals Analysis",
       desc: "Synthesizing debt safety, margin strength, and profitability.",
       detect: (log) => log.includes("fundamentals") || log.includes("balance sheet") || log.includes("analysis:")
     },
     {
-      id: 5,
+      id: 6,
       label: "Sentiment & Risk Assessment",
       desc: "Evaluating competitor pressure, regulatory hurdles, and news sentiment.",
       detect: (log) => log.includes("sentiment/risk") || log.includes("competitor dynamics") || log.includes("sentiment:")
     },
     {
-      id: 6,
+      id: 7,
       label: "CIO Decision Synthesis",
       desc: "Reviewing all metrics to build the final Invest/Pass thesis.",
-      detect: (log) => log.includes("synthesis") || log.includes("CIO") || log.includes("recommendation")
+      detect: (log) => log.includes("synthesis") || log.includes("CIO") || log.includes("recommendation") || log.includes("Qualitative")
     }
   ];
 

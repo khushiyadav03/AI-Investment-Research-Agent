@@ -11,6 +11,10 @@ export default function Dashboard({ run, onSubmitFeedback, feedbackMessage }) {
 
   const isInvest = run.decision === 'Invest';
   const hasFinancials = run.financialSummary && Object.keys(run.financialSummary).length > 0 && !run.financialSummary.error;
+  const showIdentifiedBanner = run.resolvedCompany && (run.resolutionStatus === 'resolved' || !run.resolutionStatus);
+  const resolvedName = run.resolvedCompany?.companyName || run.companyName;
+  const resolvedTicker = run.resolvedCompany?.ticker || run.ticker;
+  const originalInput = run.originalUserInput;
 
   // Audit quick-select tags
   const auditTags = [
@@ -116,6 +120,17 @@ export default function Dashboard({ run, onSubmitFeedback, feedbackMessage }) {
     return `${(val * 100).toFixed(2)}%`;
   };
 
+  const metricFields = hasFinancials ? [
+    { label: 'Market Capitalization', value: run.financialSummary.marketCap != null ? formatNumber(run.financialSummary.marketCap, run.financialSummary.currency) : null },
+    { label: 'Valuation (P/E Ratio)', value: run.financialSummary.peRatio != null ? run.financialSummary.peRatio.toFixed(2) : null },
+    { label: 'Debt-to-Equity (D/E)', value: run.financialSummary.debtToEquity != null ? `${run.financialSummary.debtToEquity.toFixed(2)}%` : null },
+    { label: 'Gross Margin', value: run.financialSummary.grossMargin != null ? formatPercent(run.financialSummary.grossMargin) : null },
+    { label: 'Operating Margin', value: run.financialSummary.operatingMargin != null ? formatPercent(run.financialSummary.operatingMargin) : null },
+    { label: 'Profit Margin', value: run.financialSummary.profitMargin != null ? formatPercent(run.financialSummary.profitMargin) : null },
+    { label: 'Revenue Growth (YoY)', value: run.financialSummary.revenueGrowth != null ? formatPercent(run.financialSummary.revenueGrowth) : null },
+    { label: 'Free Cash Flow', value: run.financialSummary.freeCashflow != null ? formatNumber(run.financialSummary.freeCashflow, run.financialSummary.currency) : null },
+  ].filter((m) => m.value != null && m.value !== 'N/A') : [];
+
   // Circumference of circular gauge (r = 55)
   const radius = 55;
   const circumference = 2 * Math.PI * radius;
@@ -135,6 +150,19 @@ export default function Dashboard({ run, onSubmitFeedback, feedbackMessage }) {
 
   return (
     <div className="report-layout">
+      {showIdentifiedBanner && (
+        <div className="identified-banner">
+          <Icon name="check" size={16} color="var(--color-invest)" />
+          <span>
+            Identified as: <strong>{resolvedName}</strong>
+            {resolvedTicker && <span className="ticker-badge-inline">{resolvedTicker}</span>}
+            {originalInput && originalInput.toLowerCase() !== resolvedName.toLowerCase() && (
+              <span className="identified-from"> (from "{originalInput}")</span>
+            )}
+          </span>
+        </div>
+      )}
+
       {/* 1. CIO HERO DECISION CARD */}
       <div className={`decision-card ${isInvest ? 'invest' : 'pass'}`}>
         <div className="decision-grid">
@@ -340,8 +368,8 @@ export default function Dashboard({ run, onSubmitFeedback, feedbackMessage }) {
         </div>
       </div>
 
-      {/* 4. KEY METRICS GRID (IF PUBLIC) */}
-      {hasFinancials && (
+      {/* 4. KEY METRICS GRID (IF PUBLIC) — only metrics with actual data */}
+      {metricFields.length > 0 && (
         <div className="dashboard-panel">
           <div className="panel-header">
             <h3 className="panel-title">
@@ -350,54 +378,12 @@ export default function Dashboard({ run, onSubmitFeedback, feedbackMessage }) {
             </h3>
           </div>
           <div className="metrics-grid">
-            <div className="metric-item">
-              <span className="metric-label">Market Capitalization</span>
-              <span className="metric-value">
-                {formatNumber(run.financialSummary.marketCap, run.financialSummary.currency)}
-              </span>
-            </div>
-            <div className="metric-item">
-              <span className="metric-label">Valuation (P/E Ratio)</span>
-              <span className="metric-value">
-                {run.financialSummary.peRatio ? run.financialSummary.peRatio.toFixed(2) : 'N/A'}
-              </span>
-            </div>
-            <div className="metric-item">
-              <span className="metric-label">Debt-to-Equity (D/E)</span>
-              <span className="metric-value">
-                {run.financialSummary.debtToEquity ? `${run.financialSummary.debtToEquity.toFixed(2)}%` : 'N/A'}
-              </span>
-            </div>
-            <div className="metric-item">
-              <span className="metric-label">Gross Margin</span>
-              <span className="metric-value">
-                {formatPercent(run.financialSummary.grossMargin)}
-              </span>
-            </div>
-            <div className="metric-item">
-              <span className="metric-label">Operating Margin</span>
-              <span className="metric-value">
-                {formatPercent(run.financialSummary.operatingMargin)}
-              </span>
-            </div>
-            <div className="metric-item">
-              <span className="metric-label">Profit Margin</span>
-              <span className="metric-value">
-                {formatPercent(run.financialSummary.profitMargin)}
-              </span>
-            </div>
-            <div className="metric-item">
-              <span className="metric-label">Revenue Growth (YoY)</span>
-              <span className="metric-value">
-                {formatPercent(run.financialSummary.revenueGrowth)}
-              </span>
-            </div>
-            <div className="metric-item">
-              <span className="metric-label">Free Cash Flow</span>
-              <span className="metric-value">
-                {formatNumber(run.financialSummary.freeCashflow, run.financialSummary.currency)}
-              </span>
-            </div>
+            {metricFields.map((metric) => (
+              <div key={metric.label} className="metric-item">
+                <span className="metric-label">{metric.label}</span>
+                <span className="metric-value">{metric.value}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}

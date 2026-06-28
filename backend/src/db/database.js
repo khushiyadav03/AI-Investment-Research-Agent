@@ -46,6 +46,31 @@ try {
 } catch (e) {
   // Ignore: Column already exists
 }
+try {
+  db.exec(`ALTER TABLE research_runs ADD COLUMN resolution_status TEXT DEFAULT 'resolved'`);
+} catch (e) {
+  // Ignore: Column already exists
+}
+try {
+  db.exec(`ALTER TABLE research_runs ADD COLUMN resolved_company TEXT`);
+} catch (e) {
+  // Ignore: Column already exists
+}
+try {
+  db.exec(`ALTER TABLE research_runs ADD COLUMN company_resolution TEXT`);
+} catch (e) {
+  // Ignore: Column already exists
+}
+try {
+  db.exec(`ALTER TABLE research_runs ADD COLUMN original_user_input TEXT`);
+} catch (e) {
+  // Ignore: Column already exists
+}
+try {
+  db.exec(`ALTER TABLE research_runs ADD COLUMN chart_data TEXT`);
+} catch (e) {
+  // Ignore: Column already exists
+}
 
 export const database = {
   /**
@@ -56,8 +81,9 @@ export const database = {
       INSERT INTO research_runs (
         company_name, ticker, decision, confidence, risk_rating, 
         reasoning, financial_summary, search_results, thought_logs,
-        fundamental_analysis, sentiment_analysis
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        fundamental_analysis, sentiment_analysis,
+        resolution_status, resolved_company, company_resolution, original_user_input, chart_data
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     const result = query.run(
@@ -71,7 +97,12 @@ export const database = {
       JSON.stringify(run.searchResults || []),
       JSON.stringify(run.thoughtLogs || []),
       JSON.stringify(run.fundamentalAnalysis || {}),
-      JSON.stringify(run.sentimentAnalysis || {})
+      JSON.stringify(run.sentimentAnalysis || {}),
+      run.resolutionStatus || 'resolved',
+      JSON.stringify(run.resolvedCompany || null),
+      JSON.stringify(run.companyResolution || null),
+      run.originalUserInput || run.companyName,
+      JSON.stringify(run.chartData || [])
     );
     
     return result.lastInsertRowid;
@@ -122,6 +153,11 @@ export const database = {
       thoughtLogs: JSON.parse(row.thought_logs || '[]'),
       fundamentalAnalysis: JSON.parse(row.fundamental_analysis || '{}'),
       sentimentAnalysis: JSON.parse(row.sentiment_analysis || '{}'),
+      resolutionStatus: row.resolution_status || 'resolved',
+      resolvedCompany: JSON.parse(row.resolved_company || 'null'),
+      companyResolution: JSON.parse(row.company_resolution || 'null'),
+      originalUserInput: row.original_user_input || row.company_name,
+      chartData: JSON.parse(row.chart_data || '[]'),
       feedbackStatus: row.feedback_status,
       feedbackComment: row.feedback_comment,
       createdAt: row.created_at

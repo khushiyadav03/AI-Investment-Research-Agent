@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import HistorySidebar from './components/HistorySidebar';
 import StatusTracker from './components/StatusTracker';
 import Dashboard from './components/Dashboard';
+import CompanyNotFound from './components/CompanyNotFound';
+import CompanyAmbiguous from './components/CompanyAmbiguous';
+import LimitedDataReport from './components/LimitedDataReport';
 import Icon from './components/Icon';
 
 export default function App() {
@@ -65,9 +68,14 @@ export default function App() {
     }
   };
 
-  const handleSearchSubmit = async (e) => {
-    e.preventDefault();
-    if (!searchTerm.trim()) return;
+  const handleSearchSubmit = async (e, overrideTerm = null) => {
+    if (e?.preventDefault) e.preventDefault();
+    const term = (overrideTerm || searchTerm).trim();
+    if (!term) return;
+
+    if (overrideTerm) {
+      setSearchTerm(overrideTerm);
+    }
 
     setIsLoading(true);
     setError('');
@@ -83,8 +91,8 @@ export default function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          companyName: searchTerm,
-          bypassCache
+          companyName: term,
+          bypassCache: overrideTerm ? true : bypassCache
         }),
       });
 
@@ -237,6 +245,46 @@ export default function App() {
     }
   };
 
+  const handleSuggestionSelect = (companyName) => {
+    handleSearchSubmit(null, companyName);
+  };
+
+  const renderActiveRun = () => {
+    if (!activeRun) return null;
+
+    const status = activeRun.resolutionStatus || 'resolved';
+
+    if (status === 'not_found') {
+      return (
+        <CompanyNotFound
+          run={activeRun}
+          onSelectSuggestion={handleSuggestionSelect}
+        />
+      );
+    }
+
+    if (status === 'ambiguous') {
+      return (
+        <CompanyAmbiguous
+          run={activeRun}
+          onSelectSuggestion={handleSuggestionSelect}
+        />
+      );
+    }
+
+    if (status === 'limited_data') {
+      return <LimitedDataReport run={activeRun} />;
+    }
+
+    return (
+      <Dashboard
+        run={activeRun}
+        onSubmitFeedback={handleSubmitFeedback}
+        feedbackMessage={feedbackMessage}
+      />
+    );
+  };
+
   return (
     <div className={`app-container ${sidebarOpen ? '' : 'sidebar-closed'}`}>
       {/* Mobile Sidebar overlay backdrop */}
@@ -347,13 +395,7 @@ export default function App() {
           </div>
         )}
 
-        {!isLoading && !error && activeRun && (
-          <Dashboard 
-            run={activeRun}
-            onSubmitFeedback={handleSubmitFeedback}
-            feedbackMessage={feedbackMessage}
-          />
-        )}
+        {!isLoading && !error && activeRun && renderActiveRun()}
 
         {!isLoading && !error && !activeRun && (
           <div className="landing-workflow">

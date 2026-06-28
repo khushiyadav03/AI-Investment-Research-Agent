@@ -84,16 +84,21 @@ app.post('/api/research', async (req, res) => {
     sendEvent('log', { message: "Saving research results to database..." });
     const newRunId = database.saveRun({
       companyName: finalState.companyName,
+      originalUserInput: finalState.originalUserInput || company,
       ticker: finalState.ticker,
       decision: finalState.decision,
       confidence: finalState.confidence,
       riskRating: finalState.riskRating,
       reasoning: finalState.reasoning,
       financialSummary: finalState.financialSummary,
+      chartData: finalState.chartData,
       searchResults: finalState.searchResults,
       thoughtLogs: finalState.thoughtLogs,
       fundamentalAnalysis: finalState.fundamentalAnalysis,
-      sentimentAnalysis: finalState.sentimentAnalysis
+      sentimentAnalysis: finalState.sentimentAnalysis,
+      resolutionStatus: finalState.resolutionStatus || 'resolved',
+      resolvedCompany: finalState.resolvedCompany,
+      companyResolution: finalState.companyResolution
     });
 
     // Fetch the newly saved complete row
