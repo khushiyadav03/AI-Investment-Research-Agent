@@ -1,15 +1,29 @@
 import React, { useState } from 'react';
 import Icon from '../components/Icon';
+import { useAuth } from '../context/AuthContext';
 
 export default function SettingsPage({ theme, onToggleTheme }) {
-  const [profile, setProfile] = useState({ name: 'Analyst', email: 'analyst@insideinvest.ai', role: 'CIO Mode' });
+  const { currentUser, logout } = useAuth();
+
+  const [profile, setProfile] = useState({
+    name:  currentUser?.name  || 'Analyst',
+    email: currentUser?.email || '',
+  });
   const [saved, setSaved] = useState(false);
-  const [notifs, setNotifs] = useState({ emailResearch: true, emailWeekly: false, inAppResearch: true, inAppSystem: true });
+  const [notifs, setNotifs] = useState({
+    emailResearch: true, emailWeekly: false,
+    inAppResearch: true, inAppSystem: true,
+  });
 
   const handleProfileSave = (e) => {
     e.preventDefault();
+    // TODO: call account.updateName() / account.updateEmail() when ready
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
+  };
+
+  const handleLogout = async () => {
+    await logout();
   };
 
   const SectionCard = ({ title, icon, children }) => (
@@ -51,7 +65,7 @@ export default function SettingsPage({ theme, onToggleTheme }) {
             <div className="settings-avatar">{profile.name?.[0]?.toUpperCase() || 'A'}</div>
             <div>
               <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{profile.name}</div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{profile.role}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{profile.email}</div>
             </div>
           </div>
           <div className="settings-field-row">
@@ -73,12 +87,7 @@ export default function SettingsPage({ theme, onToggleTheme }) {
 
       {/* Appearance */}
       <SectionCard title="Appearance" icon="activity">
-        <ToggleRow
-          label="Dark Mode"
-          sub="Switch between light and dark interface theme"
-          checked={theme === 'dark'}
-          onChange={() => onToggleTheme()}
-        />
+        <ToggleRow label="Dark Mode" sub="Switch between light and dark interface theme" checked={theme === 'dark'} onChange={() => onToggleTheme()} />
         <div className="settings-divider" />
         <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: 12 }}>
           Font size, chart colors, and density options coming soon.
@@ -101,11 +110,13 @@ export default function SettingsPage({ theme, onToggleTheme }) {
       {/* Account */}
       <SectionCard title="Account" icon="shield">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-            Account management options. Authentication via Appwrite coming soon.
-          </div>
+          {currentUser && (
+            <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+              Signed in as <strong>{currentUser.email}</strong>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button className="btn-ghost" style={{ fontSize: '0.82rem', padding: '9px 18px' }} disabled>
+            <button className="btn-ghost" style={{ fontSize: '0.82rem', padding: '9px 18px' }} onClick={handleLogout}>
               Log Out
             </button>
             <button
@@ -115,9 +126,6 @@ export default function SettingsPage({ theme, onToggleTheme }) {
             >
               Delete Account
             </button>
-          </div>
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-            These actions will be enabled once Appwrite authentication is connected.
           </div>
         </div>
       </SectionCard>

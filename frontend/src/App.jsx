@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useAuth } from './context/AuthContext';
 import HistorySidebar from './components/HistorySidebar';
 import StatusTracker from './components/StatusTracker';
 import Dashboard from './components/Dashboard';
@@ -8,17 +9,29 @@ import LimitedDataReport from './components/LimitedDataReport';
 import NotificationsDropdown from './components/NotificationsDropdown';
 import WatchlistPage from './pages/WatchlistPage';
 import SettingsPage from './pages/SettingsPage';
+import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
 import Icon from './components/Icon';
 import { useWatchlist } from './hooks/useWatchlist';
 import { useNotifications } from './hooks/useNotifications';
 
-// ── Persist sidebar collapsed state ──────────────────────────
 const getSavedCollapsed = () => {
   try { return localStorage.getItem('sidebar_collapsed') === 'true'; }
   catch { return false; }
 };
 
 export default function App() {
+  const { currentUser, loading: authLoading, logout } = useAuth();
+
+  // ── Page / UI state ─────────────────────────────────────────
+  const [activePage, setActivePage]         = useState('research');
+  const [sidebarOpen, setSidebarOpen]       = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(getSavedCollapsed);
+  const [theme, setTheme]                   = useState('light');
+  const [notifOpen, setNotifOpen]           = useState(false);
+  const [msgOpen, setMsgOpen]               = useState(false);
+
+  // ── Research state ───────────────────────────────────────────
   const [searchTerm, setSearchTerm]         = useState('');
   const [bypassCache, setBypassCache]       = useState(false);
   const [activeRun, setActiveRun]           = useState(null);
@@ -28,23 +41,17 @@ export default function App() {
   const [logsList, setLogsList]             = useState([]);
   const [error, setError]                   = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState('');
-  const [sidebarOpen, setSidebarOpen]       = useState(true);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(getSavedCollapsed);
-  const [activePage, setActivePage]         = useState('research');
-  const [theme, setTheme]                   = useState('light');
-  const [notifOpen, setNotifOpen]           = useState(false);
-  const [msgOpen, setMsgOpen]               = useState(false);
-
-  const watchlist = useWatchlist();
-  const notifs    = useNotifications();
 
   const heroInputRef = useRef(null);
+
+  const userId   = currentUser?.$id ?? null;
+  const watchlist = useWatchlist(userId);
+  const notifs    = useNotifications(userId);
 
   const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? 'http://localhost:3001/api'
     : '/_./backend/api';
 
-  // Apply theme to <html>
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
@@ -79,6 +86,15 @@ export default function App() {
         setRunsHistory(merged);
       } else { setRunsHistory(localRuns); }
     } catch { setRunsHistory(localRuns); }
+  };
+
+  const handleNavigate = (page) => {
+    // Guard protected pages — redirect to login if not authenticated
+    if ((page === 'watchlist' || page === 'settings') && !currentUser) {
+      setActivePage('login');
+      return;
+    }
+    setActivePage(page);
   };
 
   const handleSearchSubmit = async (e, overrideTerm = null) => {
@@ -191,12 +207,25 @@ export default function App() {
   const handleSuggestionSelect = (companyName) => handleSearchSubmit(null, companyName);
 
   const handleWatchlistResearch = (companyName) => {
-    setSearchTerm(companyName);
     setActivePage('research');
     handleSearchSubmit(null, companyName);
   };
 
-  // ── Render helpers ─────────────────────────────────────────
+  // ── Auth loading splash ──────────────────────────────────────
+  if (authLoading) {
+    return (
+      <div className="auth-loading-screen">
+        <div className="loader-spinner" />
+        <p>Loading InsideInvest…</p>
+      </div>
+    );
+  }
+
+  // ── Auth pages (full-screen, no shell) ───────────────────────
+  if (activePage === 'login')  return <LoginPage  onNavigate={setActivePage} />;
+  if (activePage === 'signup') return <SignupPage onNavigate={setActivePage} />;
+
+  // ── Render page content ──────────────────────────────────────
   const renderResearchContent = () => {
     if (isLoading) {
       return (
@@ -216,7 +245,6 @@ export default function App() {
         </div>
       );
     }
-
     if (error) {
       return (
         <div className="error-banner">
@@ -228,50 +256,27 @@ export default function App() {
         </div>
       );
     }
-
     if (activeRun) {
       const status = activeRun.resolutionStatus || 'resolved';
-      if (status === 'not_found')    return <CompanyNotFound    run={activeRun} onSelectSuggestion={handleSuggestionSelect} />;
-      if (status === 'ambiguous')    return <CompanyAmbiguous   run={activeRun} onSelectSuggestion={handleSuggestionSelect} />;
-      if (status === 'limited_data') return <LimitedDataReport  run={activeRun} />;
-      return (
-        <Dashboard
-          run={activeRun}
-          onSubmitFeedback={handleSubmitFeedback}
-          feedbackMessage={feedbackMessage}
-          watchlist={watchlist}
-        />
-      );
+      if (status === 'not_found')    return <CompanyNotFound   run={activeRun} onSelectSuggestion={handleSuggestionSelect} />;
+      if (status === 'ambiguous')    return <CompanyAmbiguous  run={activeRun} onSelectSuggestion={handleSuggestionSelect} />;
+      if (status === 'limited_data') return <LimitedDataReport run={activeRun} />;
+      return <Dashboard run={activeRun} onSubmitFeedback={handleSubmitFeedback} feedbackMessage={feedbackMessage} watchlist={watchlist} />;
     }
-
-    // ── Landing / hero search ──
     return (
       <div>
         <div className="hero-search-section">
           <div className="landing-hero-badge">
             <Icon name="activity" size={12} color="var(--color-brand)" /> AI-Powered · Free Data Sources
           </div>
-          <h1 className="landing-hero-title">
-            Research any company<br /><span>in seconds</span>
-          </h1>
+          <h1 className="landing-hero-title">Research any company<br /><span>in seconds</span></h1>
           <p className="landing-hero-sub">
-            Enter any public or private company name. The AI agent resolves, scrapes, and analyzes
-            corporate data to produce an Invest or Pass recommendation.
+            Enter any public or private company name. The AI agent resolves, scrapes, and analyzes corporate data to produce an Invest or Pass recommendation.
           </p>
-
-          {/* Hero search bar */}
           <form className="hero-search-form" onSubmit={handleSearchSubmit}>
             <div className="hero-search-wrap">
               <Icon name="search" size={18} color="var(--text-muted)" />
-              <input
-                ref={heroInputRef}
-                className="hero-search-input"
-                placeholder="Enter company name (e.g. Nvidia, Tesla, Stripe…)"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                disabled={isLoading}
-                autoFocus
-              />
+              <input ref={heroInputRef} className="hero-search-input" placeholder="Enter company name (e.g. Nvidia, Tesla, Stripe…)" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} disabled={isLoading} autoFocus />
               <button className="hero-search-btn" type="submit" disabled={isLoading || !searchTerm.trim()}>
                 {isLoading ? 'Analyzing…' : 'Research'}
               </button>
@@ -284,8 +289,6 @@ export default function App() {
             </div>
           </form>
         </div>
-
-        {/* Pipeline steps */}
         <div className="landing-steps">
           <div className="landing-step-card">
             <div className="landing-step-num">01</div>
@@ -309,19 +312,21 @@ export default function App() {
 
   const renderPage = () => {
     if (activePage === 'watchlist') return <WatchlistPage watchlist={watchlist} onResearch={handleWatchlistResearch} />;
-    if (activePage === 'settings')  return <SettingsPage  theme={theme} onToggleTheme={toggleTheme} />;
+    if (activePage === 'settings')  return <SettingsPage theme={theme} onToggleTheme={toggleTheme} />;
     return renderResearchContent();
   };
 
-  const pageTitle    = activePage === 'watchlist' ? 'Watchlist' : activePage === 'settings' ? 'Settings' : activeRun ? (activeRun.companyName || 'Research Report') : 'Research';
-  const pageSubtitle = activePage === 'watchlist' ? 'Your saved companies' :
-                       activePage === 'settings'  ? 'Manage your preferences' :
-                       activeRun  ? `AI Analysis · ${activeRun.ticker ? activeRun.ticker + ' · ' : ''}${activeRun.createdAt ? new Date(activeRun.createdAt).toLocaleDateString() : ''}` :
-                       'Comprehensive due diligence, fundamental analysis & news sentiment.';
+  const pageTitle = activePage === 'watchlist' ? 'Watchlist' : activePage === 'settings' ? 'Settings' : activeRun ? (activeRun.companyName || 'Research Report') : 'Research';
+
+  // Navbar avatar initials from real user
+  const userInitials = currentUser?.name
+    ? currentUser.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+    : 'AI';
+  const userName  = currentUser?.name  || 'Analyst';
+  const userEmail = currentUser?.email || 'CIO Mode';
 
   return (
     <div className={`app-shell${sidebarOpen ? '' : ' sidebar-closed'}`} data-theme={theme}>
-      {/* Mobile overlay */}
       {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
 
       <HistorySidebar
@@ -332,70 +337,46 @@ export default function App() {
         collapsed={sidebarCollapsed}
         onToggleCollapse={toggleSidebarCollapse}
         activePage={activePage}
-        onNavigate={setActivePage}
+        onNavigate={handleNavigate}
       />
 
       <div className="main-panel">
-        {/* ── Navbar ── */}
         <nav className="top-navbar">
           <button className="navbar-hamburger" onClick={() => setSidebarOpen(s => !s)}>
             <Icon name="menu" size={20} />
           </button>
 
-          {/* Compact search in navbar (visible when a result is showing) */}
-          {activePage === 'research' && activeRun && (
+          {activePage === 'research' && activeRun ? (
             <form className="navbar-search-form" onSubmit={handleSearchSubmit}>
               <div className="navbar-search-wrap">
                 <Icon name="search" size={14} color="var(--text-muted)" />
-                <input
-                  className="navbar-search-input"
-                  placeholder="Search another company…"
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  disabled={isLoading}
-                />
-                <button className="navbar-search-btn" type="submit" disabled={isLoading || !searchTerm.trim()}>
-                  {isLoading ? '…' : 'Go'}
-                </button>
+                <input className="navbar-search-input" placeholder="Search another company…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} disabled={isLoading} />
+                <button className="navbar-search-btn" type="submit" disabled={isLoading || !searchTerm.trim()}>{isLoading ? '…' : 'Go'}</button>
               </div>
             </form>
-          )}
-          {activePage === 'research' && !activeRun && (
-            <div style={{ flex: 1, fontSize: '0.875rem', color: 'var(--text-muted)', paddingLeft: 4 }}>
-              InsideInvest — AI Research Agent
-            </div>
-          )}
-          {activePage !== 'research' && (
-            <div style={{ flex: 1, fontFamily: 'var(--font-title)', fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', paddingLeft: 4 }}>
-              {pageTitle}
+          ) : (
+            <div style={{ flex: 1, fontFamily: activePage !== 'research' ? 'var(--font-title)' : undefined, fontWeight: activePage !== 'research' ? 700 : undefined, fontSize: '0.95rem', color: 'var(--text-primary)', paddingLeft: 4 }}>
+              {activePage === 'research' ? 'InsideInvest — AI Research Agent' : pageTitle}
             </div>
           )}
 
           <div className="navbar-right">
-            <label className="bypass-cache-label" title="Force fresh analysis on next search">
+            <label className="bypass-cache-label" title="Force fresh analysis">
               <input type="checkbox" checked={bypassCache} onChange={e => setBypassCache(e.target.checked)} />
               <span>Fresh</span>
             </label>
 
             <div className="navbar-divider" />
 
-            {/* Notifications bell */}
+            {/* Notifications */}
             <div style={{ position: 'relative' }}>
               <button className="navbar-icon-btn" title="Notifications" onClick={() => { setNotifOpen(o => !o); setMsgOpen(false); }}>
                 <Icon name="alert" size={17} />
-                {notifs.unreadNotifications > 0 && (
-                  <span className="navbar-badge">{notifs.unreadNotifications}</span>
-                )}
+                {notifs.unreadNotifications > 0 && <span className="navbar-badge">{notifs.unreadNotifications}</span>}
               </button>
               {notifOpen && (
-                <NotificationsDropdown
-                  type="notification"
-                  items={notifs.notifications}
-                  unread={notifs.unreadNotifications}
-                  onMarkRead={notifs.markNotificationRead}
-                  onMarkAllRead={notifs.markAllNotificationsRead}
-                  onClose={() => setNotifOpen(false)}
-                />
+                <NotificationsDropdown type="notification" items={notifs.notifications} unread={notifs.unreadNotifications}
+                  onMarkRead={notifs.markNotificationRead} onMarkAllRead={notifs.markAllNotificationsRead} onClose={() => setNotifOpen(false)} />
               )}
             </div>
 
@@ -403,40 +384,40 @@ export default function App() {
             <div style={{ position: 'relative' }}>
               <button className="navbar-icon-btn" title="Messages" onClick={() => { setMsgOpen(o => !o); setNotifOpen(false); }}>
                 <Icon name="message" size={17} />
-                {notifs.unreadMessages > 0 && (
-                  <span className="navbar-badge">{notifs.unreadMessages}</span>
-                )}
+                {notifs.unreadMessages > 0 && <span className="navbar-badge">{notifs.unreadMessages}</span>}
               </button>
               {msgOpen && (
-                <NotificationsDropdown
-                  type="message"
-                  items={notifs.messages}
-                  unread={notifs.unreadMessages}
-                  onMarkRead={notifs.markMessageRead}
-                  onMarkAllRead={notifs.markAllMessagesRead}
-                  onClose={() => setMsgOpen(false)}
-                />
+                <NotificationsDropdown type="message" items={notifs.messages} unread={notifs.unreadMessages}
+                  onMarkRead={notifs.markMessageRead} onMarkAllRead={notifs.markAllMessagesRead} onClose={() => setMsgOpen(false)} />
               )}
             </div>
 
             <div className="navbar-divider" />
 
-            <div className="navbar-user" onClick={() => setActivePage('settings')}>
-              <div className="navbar-avatar">AI</div>
-              <div className="navbar-user-info">
-                <span className="navbar-user-name">Analyst</span>
-                <span className="navbar-user-role">CIO Mode</span>
+            {/* User avatar — real name from Appwrite */}
+            {currentUser ? (
+              <div className="navbar-user" onClick={() => handleNavigate('settings')}>
+                <div className="navbar-avatar">{userInitials}</div>
+                <div className="navbar-user-info">
+                  <span className="navbar-user-name">{userName}</span>
+                  <span className="navbar-user-role">{userEmail}</span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <button className="btn-brand" style={{ padding: '7px 18px', fontSize: '0.82rem', borderRadius: 50 }} onClick={() => setActivePage('login')}>
+                Sign in
+              </button>
+            )}
           </div>
         </nav>
 
-        {/* ── Page content ── */}
         <main className="page-content">
           {activePage === 'research' && activeRun && (
             <div>
               <h1 className="page-heading">{pageTitle}</h1>
-              <p className="page-subheading">{pageSubtitle}</p>
+              <p className="page-subheading">
+                {`AI Analysis · ${activeRun.ticker ? activeRun.ticker + ' · ' : ''}${activeRun.createdAt ? new Date(activeRun.createdAt).toLocaleDateString() : ''}`}
+              </p>
             </div>
           )}
           {renderPage()}
