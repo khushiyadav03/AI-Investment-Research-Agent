@@ -6,6 +6,8 @@ import MarginsBarChart     from './charts/MarginsBarChart';
 import GrowthBarChart      from './charts/GrowthBarChart';
 import AnalystGauge        from './charts/AnalystGauge';
 import SentimentDonut      from './charts/SentimentDonut';
+import ValuationChart      from './charts/ValuationChart';
+import LiquidityPanel      from './charts/LiquidityPanel';
 
 /* ── Inline markdown renderer ──────────────────────────────── */
 function renderMarkdown(md) {
@@ -124,11 +126,13 @@ export default function Dashboard({ run, onSubmitFeedback, feedbackMessage, watc
   };
 
   /* Which charts have enough data to render? */
-  const showRadar    = hasFinancials;
-  const showMargins  = hasFinancials && [fs.grossMargin, fs.operatingMargin, fs.profitMargin, fs.ebitdaMargin].filter(Boolean).length >= 2;
-  const showGrowth   = hasFinancials && (fs.revenueGrowth != null || fs.earningsGrowth != null);
-  const showAnalyst  = hasFinancials && (fs.recommendationKey || fs.recommendationMean != null);
-  const showSentiment= !!run.sentimentAnalysis?.sentiment;
+  const showRadar     = hasFinancials;
+  const showMargins   = hasFinancials && [fs.grossMargin, fs.operatingMargin, fs.profitMargin, fs.ebitdaMargin].filter(v => v != null).length >= 2;
+  const showGrowth    = hasFinancials && (fs.revenueGrowth != null || fs.earningsGrowth != null);
+  const showAnalyst   = hasFinancials && (fs.recommendationKey || fs.recommendationMean != null);
+  const showSentiment = !!run.sentimentAnalysis?.sentiment;
+  const showValuation = hasFinancials && (fs.peRatio != null || fs.priceToBook != null || fs.pegRatio != null);
+  const showLiquidity = hasFinancials && (fs.currentRatio != null || fs.quickRatio != null);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -245,6 +249,14 @@ export default function Dashboard({ run, onSubmitFeedback, feedbackMessage, watc
         <div className="charts-grid-2">
           {showGrowth    && <GrowthBarChart   fs={fs} />}
           {showSentiment && <SentimentDonut   sentimentAnalysis={run.sentimentAnalysis} />}
+        </div>
+      )}
+
+      {/* ══ 5b. VALUATION + LIQUIDITY ════════════════════════════ */}
+      {(showValuation || showLiquidity) && (
+        <div className="charts-grid-2">
+          {showValuation && <ValuationChart fs={fs} />}
+          {showLiquidity && <LiquidityPanel  fs={fs} />}
         </div>
       )}
 

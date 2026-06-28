@@ -35,8 +35,8 @@ export default function FinancialRadarChart({ fs }) {
   const margins       = normalise((fs.operatingMargin ?? fs.grossMargin ?? 0) * 100, -10, 50);
 
   const scores = { profitability, growth, liquidity, valuation, debtSafety, margins };
-  const validCount = Object.values(scores).filter(v => v != null).length;
-  if (validCount < 3) return null; // don't render with too little data
+  const validCount = Object.values(scores).filter(v => v != null && v > 0).length;
+  if (validCount < 2) return null;
 
   const data = [
     { axis: 'Profitability', company: Math.round(profitability ?? 0), benchmark: BENCHMARKS['Profitability'].bench },
