@@ -1559,6 +1559,22 @@ body {
   font-style: italic;
 }
 
+.resolution-searching {
+  margin-top: 24px;
+  padding: 20px;
+  background: rgba(0, 242, 254, 0.05);
+  border: 1px solid rgba(0, 242, 254, 0.2);
+  border-radius: 12px;
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+.resolution-searching p {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}
+
 .resolution-logs {
   margin-top: 30px;
   text-align: left;

@@ -2,9 +2,16 @@ import React from 'react';
 import Icon from './Icon';
 
 export default function CompanyNotFound({ run, onSelectSuggestion }) {
+  const [selectedName, setSelectedName] = React.useState(null);
+
   const userInput = run.originalUserInput || run.companyName;
   const alternatives = run.companyResolution?.alternativeMatches || [];
   const resolutionReasoning = run.companyResolution?.reasoning;
+
+  const handleSelect = (name) => {
+    setSelectedName(name);
+    onSelectSuggestion(name);
+  };
 
   return (
     <div className="resolution-panel not-found">
@@ -26,22 +33,31 @@ export default function CompanyNotFound({ run, onSelectSuggestion }) {
         </div>
       )}
 
-      {alternatives.length > 0 && (
-        <div className="resolution-suggestions">
-          <p className="suggestions-label">Did you mean one of these?</p>
-          <div className="suggestion-chips">
-            {alternatives.map((name) => (
-              <button
-                key={name}
-                type="button"
-                className="suggestion-chip"
-                onClick={() => onSelectSuggestion(name)}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
+      {selectedName ? (
+        <div className="resolution-searching">
+          <div className="loader-animation" style={{ width: 28, height: 28, margin: '0 auto 10px' }}></div>
+          <p style={{ color: 'var(--color-primary)', fontWeight: 600 }}>
+            Researching <strong>{selectedName}</strong>…
+          </p>
         </div>
+      ) : (
+        alternatives.length > 0 && (
+          <div className="resolution-suggestions">
+            <p className="suggestions-label">Did you mean one of these?</p>
+            <div className="suggestion-chips">
+              {alternatives.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  className="suggestion-chip"
+                  onClick={() => handleSelect(name)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )
       )}
 
       {run.thoughtLogs && run.thoughtLogs.length > 0 && (
