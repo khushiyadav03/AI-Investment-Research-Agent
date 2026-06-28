@@ -4,17 +4,21 @@ import { databases, ID, Query, DB_ID, NOTIFICATIONS_COL } from '../lib/appwrite'
 /**
  * useNotifications — Appwrite Database-backed notifications hook.
  *
- * Collection attributes required:
- *   userId (string), type (string), title (string),
- *   message (string), read (boolean), timestamp (datetime)
- *
- * Falls back to seed data when Appwrite env vars are not yet configured.
+ * Exact collection schema (from Appwrite console errors):
+ *   userId    (string)
+ *   type      (string)   — 'notification' | 'message'
+ *   title     (string)
+ *   message   (string)
+ *   read      (boolean)
+ *   createdAt (datetime, required)   ← NOT 'timestamp'
  */
 
+const now = () => new Date().toISOString();
+
 const SEED = [
-  { $id: 's1', id: 's1', type: 'notification', title: 'Welcome to InsideInvest!',   message: 'Search any public or private company to generate your first AI investment report.', read: false, timestamp: new Date(Date.now() - 3600000).toISOString() },
-  { $id: 's2', id: 's2', type: 'notification', title: 'New Feature: Watchlist',      message: 'You can now save companies to your watchlist from any research report.',             read: false, timestamp: new Date(Date.now() - 7200000).toISOString() },
-  { $id: 's3', id: 's3', type: 'message',      title: 'System',                      message: 'Your research pipeline is online and ready. Backend is connected on port 3001.',     read: false, timestamp: new Date(Date.now() - 1800000).toISOString() },
+  { $id: 's1', id: 's1', type: 'notification', title: 'Welcome to InsideInvest!',   message: 'Search any public or private company to generate your first AI investment report.', read: false, createdAt: new Date(Date.now() - 3600000).toISOString() },
+  { $id: 's2', id: 's2', type: 'notification', title: 'New Feature: Watchlist',      message: 'You can now save companies to your watchlist from any research report.',             read: false, createdAt: new Date(Date.now() - 7200000).toISOString() },
+  { $id: 's3', id: 's3', type: 'message',      title: 'System',                      message: 'Your research pipeline is online and ready. Backend is connected on port 3001.',     read: false, createdAt: new Date(Date.now() - 1800000).toISOString() },
 ];
 
 const isConfigured = () =>
@@ -28,7 +32,7 @@ export function useNotifications(userId) {
   const unreadNotifications = notifications.filter(n => !n.read).length;
   const unreadMessages      = messages.filter(n => !n.read).length;
 
-  // ── FETCH from Appwrite ──────────────────────────────────────
+  // ── FETCH ────────────────────────────────────────────────────
   useEffect(() => {
     if (!userId || !isConfigured()) return;
     databases.listDocuments(DB_ID, NOTIFICATIONS_COL, [
@@ -39,16 +43,13 @@ export function useNotifications(userId) {
       if (res.documents.length > 0) {
         const sorted = res.documents
           .slice()
-          .sort((a, b) => new Date(b.$createdAt) - new Date(a.$createdAt));
+          .sort((a, b) => new Date(b.createdAt || b.$createdAt) - new Date(a.createdAt || a.$createdAt));
         setAllItems(sorted.map(docToItem));
       }
     })
     .catch(err => {
-      // 401 = Appwrite collection permissions not set for logged-in users.
-      // Fix in Appwrite Console → Database → notifications collection → Settings → Permissions
-      // → Add role "Users" with Read + Create + Update + Delete checked.
       if (err?.code === 401) {
-        console.warn('[Notifications] Permission denied (401). Go to Appwrite Console → your notifications collection → Settings → Permissions → add role "Users" with read/write access.');
+        console.warn('[Notifications] 401 — set collection permissions in Appwrite Console (Users: read/create/update/delete).');
       } else {
         console.error('[Notifications] fetch error:', err?.message);
       }
@@ -85,18 +86,19 @@ export function useNotifications(userId) {
   }, [allItems]);
 
   const markAllNotificationsRead = useCallback(() => markAllRead('notification'), [markAllRead]);
-  const markAllMessagesRead      = useCallback(() => markAllRead('message'),      [markAllRead]);
+  const markAllMessagesRead      = useCallback(() => markAllRead('message'), [markAllRead]);
 
-  // ── PUSH NEW (after research completes) ─────────────────────
+  // ── PUSH after research completes ───────────────────────────
   const pushResearchComplete = useCallback(async (companyName, decision) => {
-    const localId = 'local-' + Date.now();
+    const localId  = 'local-' + Date.now();
+    const tsNow    = now();
     const item = {
       $id: localId, id: localId,
       type: 'notification',
-      title: `Research complete: ${companyName}`,
+      title:   `Research complete: ${companyName}`,
       message: `AI recommendation: ${decision ?? 'N/A'}`,
-      read: false,
-      timestamp: new Date().toISOString(),
+      read:      false,
+      createdAt: tsNow,
     };
     setAllItems(prev => [item, ...prev]);
 
@@ -104,13 +106,11 @@ export function useNotifications(userId) {
     try {
       const doc = await databases.createDocument(DB_ID, NOTIFICATIONS_COL, ID.unique(), {
         userId,
-        type:    item.type,
-        title:   item.title,
-        message: item.message,
-        read:    false,
-        // Only include 'timestamp' if your collection schema has this attribute.
-        // If you get a "Missing required attribute" error, remove this line.
-        // timestamp: item.timestamp,
+        type:      item.type,
+        title:     item.title,
+        message:   item.message,
+        read:      false,
+        createdAt: tsNow,
       });
       setAllItems(prev => prev.map(n => n.id === localId ? docToItem(doc) : n));
     } catch (err) {
@@ -129,10 +129,12 @@ export function useNotifications(userId) {
 
 function docToItem(doc) {
   return {
-    $id: doc.$id, id: doc.$id,
-    type: doc.type, title: doc.title,
-    message: doc.message, read: doc.read,
-    // Use custom 'timestamp' field if it exists, otherwise fall back to Appwrite's built-in $createdAt
-    timestamp: doc.timestamp || doc.$createdAt,
+    $id:       doc.$id,
+    id:        doc.$id,
+    type:      doc.type,
+    title:     doc.title,
+    message:   doc.message,
+    read:      doc.read,
+    createdAt: doc.createdAt || doc.$createdAt,
   };
 }

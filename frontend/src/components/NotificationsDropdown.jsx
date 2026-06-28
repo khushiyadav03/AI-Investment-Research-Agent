@@ -5,7 +5,7 @@ function fmtTime(iso) {
   try {
     const d = new Date(iso);
     const diff = Date.now() - d.getTime();
-    if (diff < 60000)  return 'Just now';
+    if (diff < 60000)   return 'Just now';
     if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
     if (diff < 86400000) return `${Math.floor(diff/3600000)}h ago`;
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -45,7 +45,7 @@ export default function NotificationsDropdown({ type, items, unread, onMarkRead,
               <div className="notif-item-body">
                 <div className="notif-item-title">{item.title}</div>
                 <div className="notif-item-msg">{item.message}</div>
-                <div className="notif-item-time">{fmtTime(item.timestamp)}</div>
+                <div className="notif-item-time">{fmtTime(item.createdAt || item.timestamp)}</div>
               </div>
             </div>
           ))
