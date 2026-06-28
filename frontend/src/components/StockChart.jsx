@@ -1,307 +1,204 @@
 import React, { useRef, useEffect, useState } from 'react';
 
 export default function StockChart({ data, ticker }) {
-  const canvasRef = useRef(null);
-  const [selectedRange, setSelectedRange] = useState('1Y'); // '3M' | '6M' | '1Y'
-  const [hoverIndex, setHoverIndex] = useState(-1);
-  const [filteredData, setFilteredData] = useState([]);
-  const [resizeTrigger, setResizeTrigger] = useState(0);
+  const canvasRef     = useRef(null);
+  const [range, setRange]           = useState('1Y');
+  const [hoverIdx, setHoverIdx]     = useState(-1);
+  const [filtered, setFiltered]     = useState([]);
+  const [resizeTick, setResizeTick] = useState(0);
 
-  // Monitor window resize to redraw canvas
   useEffect(() => {
-    const handleResize = () => {
-      setResizeTrigger(prev => prev + 1);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    const onResize = () => setResizeTick(t => t + 1);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // Filter data based on selected range
   useEffect(() => {
-    if (!data || data.length === 0) return;
-    
+    if (!data?.length) return;
     const today = new Date();
-    let cutoffDate = new Date();
-    
-    if (selectedRange === '3M') {
-      cutoffDate.setDate(today.getDate() - 90);
-    } else if (selectedRange === '6M') {
-      cutoffDate.setDate(today.getDate() - 180);
-    } else {
-      cutoffDate.setDate(today.getDate() - 365); // 1Y
-    }
-    
-    const filtered = data.filter(item => {
-      const itemDate = new Date(item.date);
-      return itemDate >= cutoffDate;
-    });
-    
-    // Fallback to full data if filter results in too few points
-    setFilteredData(filtered.length > 5 ? filtered : data);
-    setHoverIndex(-1); // Reset hover
-  }, [data, selectedRange]);
+    const cutoff = new Date();
+    if      (range === '3M') cutoff.setDate(today.getDate() - 90);
+    else if (range === '6M') cutoff.setDate(today.getDate() - 180);
+    else                     cutoff.setDate(today.getDate() - 365);
+    const f = data.filter(d => new Date(d.date) >= cutoff);
+    setFiltered(f.length > 5 ? f : data);
+    setHoverIdx(-1);
+  }, [data, range]);
 
-  // Handle draw logic
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || filteredData.length === 0) return;
+    if (!canvas || !filtered.length) return;
 
-    const ctx = canvas.getContext('2d');
-    
-    // Set display sizes (double for retina/high-DPI displays)
+    const ctx  = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * 2;
+    canvas.width  = rect.width  * 2;
     canvas.height = rect.height * 2;
     ctx.scale(2, 2);
 
-    const width = rect.width;
-    const height = rect.height;
+    const W = rect.width, H = rect.height;
+    const mg = { top: 24, right: 16, bottom: 28, left: 56 };
+    const cW = W - mg.left - mg.right;
+    const cH = H - mg.top  - mg.bottom;
 
-    const margin = { top: 25, right: 20, bottom: 30, left: 55 };
-    const chartWidth = width - margin.left - margin.right;
-    const chartHeight = height - margin.top - margin.bottom;
+    ctx.clearRect(0, 0, W, H);
 
-    ctx.clearRect(0, 0, width, height);
+    const prices  = filtered.map(d => d.close);
+    const maxP    = Math.max(...prices) * 1.02;
+    const minP    = Math.min(...prices) * 0.98;
+    const range_  = maxP - minP;
 
-    const prices = filteredData.map(d => d.close);
-    const maxPrice = Math.max(...prices) * 1.02;
-    const minPrice = Math.min(...prices) * 0.98;
-    const priceRange = maxPrice - minPrice;
+    const pts = filtered.map((d, i) => ({
+      x: mg.left + (i / (filtered.length - 1)) * cW,
+      y: mg.top  + cH - ((d.close - minP) / range_) * cH,
+      price: d.close, date: d.date,
+    }));
 
-    // Map points
-    const points = filteredData.map((d, index) => {
-      const x = margin.left + (index / (filteredData.length - 1)) * chartWidth;
-      const y = margin.top + chartHeight - ((d.close - minPrice) / priceRange) * chartHeight;
-      return { x, y, price: d.close, date: d.date };
-    });
-
-    // 1. Draw Grid Lines & Y Axis Labels
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
-    ctx.lineWidth = 1;
-    ctx.fillStyle = '#475569'; // var(--text-muted)
+    // Grid lines + Y labels
     ctx.font = '10px Plus Jakarta Sans, sans-serif';
-    ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-
-    const yGridCount = 4;
-    for (let i = 0; i <= yGridCount; i++) {
-      const priceVal = minPrice + (i / yGridCount) * priceRange;
-      const y = margin.top + chartHeight - (i / yGridCount) * chartHeight;
-      
-      ctx.beginPath();
-      ctx.moveTo(margin.left, y);
-      ctx.lineTo(width - margin.right, y);
-      ctx.stroke();
-
-      ctx.fillText(`$${priceVal.toFixed(2)}`, margin.left - 8, y);
+    ctx.textAlign    = 'right';
+    for (let i = 0; i <= 4; i++) {
+      const val = minP + (i / 4) * range_;
+      const y   = mg.top + cH - (i / 4) * cH;
+      ctx.strokeStyle = 'rgba(0,0,0,0.055)';
+      ctx.lineWidth   = 1;
+      ctx.beginPath(); ctx.moveTo(mg.left, y); ctx.lineTo(W - mg.right, y); ctx.stroke();
+      ctx.fillStyle = '#9CA3AF';
+      ctx.fillText(`$${val.toFixed(0)}`, mg.left - 6, y);
     }
 
-    // 2. Draw X Axis Labels (Dates)
-    ctx.textAlign = 'center';
+    // X labels
+    ctx.textAlign    = 'center';
     ctx.textBaseline = 'top';
-    const xLabelCount = 3;
-    const step = Math.floor(filteredData.length / (xLabelCount - 1)) || 1;
-    
-    for (let i = 0; i < xLabelCount; i++) {
-      let idx = i * step;
-      if (idx >= filteredData.length) idx = filteredData.length - 1;
-      if (idx < 0) continue;
-      
-      const pt = points[idx];
-      const dateParts = pt.date.split('-');
-      let dateLabel = pt.date;
-      if (dateParts.length === 3) {
-        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const monthIndex = parseInt(dateParts[1]) - 1;
-        if (monthIndex >= 0 && monthIndex < 12) {
-          dateLabel = `${monthNames[monthIndex]} ${dateParts[2]}`;
-        }
-      }
-
-      ctx.fillText(dateLabel, pt.x, height - margin.bottom + 8);
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const xCount = 3;
+    for (let i = 0; i < xCount; i++) {
+      const idx = Math.min(Math.round(i * (filtered.length - 1) / (xCount - 1)), filtered.length - 1);
+      const pt  = pts[idx];
+      const dp  = pt.date.split('-');
+      const lbl = dp.length === 3 ? `${months[parseInt(dp[1])-1]} ${dp[2]}` : pt.date;
+      ctx.fillStyle = '#9CA3AF';
+      ctx.fillText(lbl, pt.x, H - mg.bottom + 6);
     }
 
-    // 3. Draw Gradient Fill Area Under the Line
-    const areaGradient = ctx.createLinearGradient(0, margin.top, 0, margin.top + chartHeight);
-    areaGradient.addColorStop(0, 'rgba(0, 242, 254, 0.15)'); // Cyan Glow
-    areaGradient.addColorStop(1, 'rgba(0, 242, 254, 0.0)');
-    
-    ctx.fillStyle = areaGradient;
+    // Gradient fill
+    const grad = ctx.createLinearGradient(0, mg.top, 0, mg.top + cH);
+    grad.addColorStop(0,   'rgba(255,107,53,0.18)');
+    grad.addColorStop(0.7, 'rgba(255,107,53,0.04)');
+    grad.addColorStop(1,   'rgba(255,107,53,0.00)');
+    ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(points[0].x, margin.top + chartHeight);
-    points.forEach(pt => ctx.lineTo(pt.x, pt.y));
-    ctx.lineTo(points[points.length - 1].x, margin.top + chartHeight);
+    ctx.moveTo(pts[0].x, mg.top + cH);
+    pts.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.lineTo(pts[pts.length-1].x, mg.top + cH);
     ctx.closePath();
     ctx.fill();
 
-    // 4. Draw Price Line
-    ctx.strokeStyle = '#00f2fe'; // Cyber Cyan
-    ctx.lineWidth = 2.5;
+    // Line
+    ctx.strokeStyle = '#FF6B35';
+    ctx.lineWidth   = 2;
+    ctx.lineJoin    = 'round';
     ctx.beginPath();
-    points.forEach((pt, idx) => {
-      if (idx === 0) ctx.moveTo(pt.x, pt.y);
-      else ctx.lineTo(pt.x, pt.y);
-    });
+    pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
     ctx.stroke();
 
-    // 5. Draw Hover State (Vertical line, highlight circle, and canvas tooltip)
-    if (hoverIndex >= 0 && hoverIndex < points.length) {
-      const activePt = points[hoverIndex];
-
-      // Draw dashed crosshair line
+    // Hover
+    if (hoverIdx >= 0 && hoverIdx < pts.length) {
+      const ap = pts[hoverIdx];
       ctx.save();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(activePt.x, margin.top);
-      ctx.lineTo(activePt.x, height - margin.bottom);
-      ctx.stroke();
+      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+      ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(ap.x, mg.top); ctx.lineTo(ap.x, H - mg.bottom); ctx.stroke();
       ctx.restore();
 
-      // Draw glowing node circle
-      ctx.beginPath();
-      ctx.arc(activePt.x, activePt.y, 6, 0, 2 * Math.PI);
-      ctx.fillStyle = '#00f2fe';
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = '#00f2fe';
-      ctx.fill();
-      
-      // Draw outer ring
-      ctx.beginPath();
-      ctx.arc(activePt.x, activePt.y, 10, 0, 2 * Math.PI);
-      ctx.strokeStyle = 'rgba(0, 242, 254, 0.3)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      
-      // Reset shadow for tooltip drawing
+      ctx.beginPath(); ctx.arc(ap.x, ap.y, 5, 0, 2*Math.PI);
+      ctx.fillStyle = '#FF6B35'; ctx.shadowBlur = 8; ctx.shadowColor = 'rgba(255,107,53,0.5)'; ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.shadowColor = 'transparent';
 
-      // Draw Tooltip Callout Panel (Dynamic Canvas drawing)
-      const tipVal = `$${activePt.price.toFixed(2)}`;
-      const tipDate = activePt.date;
+      ctx.beginPath(); ctx.arc(ap.x, ap.y, 9, 0, 2*Math.PI);
+      ctx.strokeStyle = 'rgba(255,107,53,0.3)'; ctx.lineWidth = 1.5; ctx.stroke();
+
+      const tipVal  = `$${ap.price.toFixed(2)}`;
+      const tipDate = ap.date;
       ctx.font = 'bold 10px Plus Jakarta Sans, sans-serif';
-      const w1 = ctx.measureText(tipVal).width;
-      ctx.font = '9px Plus Jakarta Sans, sans-serif';
-      const w2 = ctx.measureText(tipDate).width;
-      
-      const tooltipW = Math.max(w1, w2) + 20;
-      const tooltipH = 34;
-      
-      // Position tooltip dynamically to avoid borders
-      let tooltipX = activePt.x - tooltipW / 2;
-      if (tooltipX < margin.left) tooltipX = margin.left + 5;
-      if (tooltipX + tooltipW > width - margin.right) tooltipX = width - margin.right - tooltipW - 5;
-      
-      let tooltipY = activePt.y - tooltipH - 12;
-      if (tooltipY < margin.top) tooltipY = activePt.y + 12; // flip underneath if too high
+      const tW = Math.max(ctx.measureText(tipVal).width, ctx.measureText(tipDate).width) + 20;
+      const tH = 34;
+      let tX = ap.x - tW / 2;
+      let tY = ap.y - tH - 12;
+      if (tX < mg.left) tX = mg.left + 2;
+      if (tX + tW > W - mg.right) tX = W - mg.right - tW - 2;
+      if (tY < mg.top) tY = ap.y + 12;
 
-      // Tooltip Glass container
-      ctx.fillStyle = 'rgba(10, 14, 28, 0.95)';
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-      ctx.lineWidth = 1;
-      
-      // Draw rounded rectangle
-      const radius = 6;
-      ctx.beginPath();
-      ctx.roundRect(tooltipX, tooltipY, tooltipW, tooltipH, radius);
-      ctx.fill();
-      ctx.stroke();
+      ctx.fillStyle   = '#FFFFFF';
+      ctx.strokeStyle = '#E5E7EB';
+      ctx.lineWidth   = 1;
+      ctx.shadowBlur  = 8; ctx.shadowColor = 'rgba(0,0,0,0.10)';
+      ctx.beginPath(); ctx.roundRect(tX, tY, tW, tH, 6); ctx.fill(); ctx.stroke();
+      ctx.shadowBlur = 0;
 
-      // Tooltip Text
-      ctx.fillStyle = '#f8fafc';
+      ctx.fillStyle = '#1A1F36';
       ctx.font = 'bold 10px Plus Jakarta Sans, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(tipVal, tooltipX + tooltipW / 2, tooltipY + 12);
-      
-      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(tipVal, tX + tW/2, tY + 12);
+      ctx.fillStyle = '#9CA3AF';
       ctx.font = '9px Plus Jakarta Sans, sans-serif';
-      ctx.fillText(tipDate, tooltipX + tooltipW / 2, tooltipY + 24);
+      ctx.fillText(tipDate, tX + tW/2, tY + 24);
     }
 
-    // 6. Draw axis borders
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    // Axis border
+    ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(margin.left, margin.top);
-    ctx.lineTo(margin.left, height - margin.bottom);
-    ctx.lineTo(width - margin.right, height - margin.bottom);
+    ctx.moveTo(mg.left, mg.top); ctx.lineTo(mg.left, H - mg.bottom);
+    ctx.lineTo(W - mg.right, H - mg.bottom);
     ctx.stroke();
 
-  }, [filteredData, hoverIndex, resizeTrigger]);
+  }, [filtered, hoverIdx, resizeTick]);
 
-  // Track mouse coordinates to locate nearest point index
-  const handleMouseMove = (e) => {
+  const handleMouseMove = e => {
     const canvas = canvasRef.current;
-    if (!canvas || filteredData.length === 0) return;
-
+    if (!canvas || !filtered.length) return;
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    
-    const margin = { left: 55, right: 20 };
-    const chartWidth = rect.width - margin.left - margin.right;
-    
-    // Compute exact hover ratio
-    const hoverRatio = (x - margin.left) / chartWidth;
-    let targetIndex = Math.round(hoverRatio * (filteredData.length - 1));
-    
-    // Bounds clamping
-    if (targetIndex < 0) targetIndex = 0;
-    if (targetIndex >= filteredData.length) targetIndex = filteredData.length - 1;
-
-    setHoverIndex(targetIndex);
+    const x  = e.clientX - rect.left;
+    const mg = { left: 56, right: 16 };
+    const cW = rect.width - mg.left - mg.right;
+    let idx  = Math.round(((x - mg.left) / cW) * (filtered.length - 1));
+    idx = Math.max(0, Math.min(idx, filtered.length - 1));
+    setHoverIdx(idx);
   };
 
-  const handleMouseLeave = () => {
-    setHoverIndex(-1);
-  };
-
-  if (!data || data.length === 0) {
+  if (!data?.length) {
     return (
-      <div className="empty-state" style={{ padding: '20px', margin: 0 }}>
-        <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-          Historical price chart not available.
-        </div>
+      <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+        Historical price chart not available.
       </div>
     );
   }
 
+  const ranges = ['3M', '6M', '1Y'];
+
   return (
-    <div className="chart-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
-          Stock Price ({ticker})
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+      <div className="chart-header">
+        <span className="chart-title">
+          Price History{ticker ? ` · ${ticker}` : ''}
         </span>
-        <div style={{ display: 'flex', gap: '6px', background: 'rgba(255,255,255,0.03)', padding: '2px', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
-          {['3M', '6M', '1Y'].map(range => (
-            <button
-              key={range}
-              onClick={() => setSelectedRange(range)}
-              style={{
-                background: selectedRange === range ? 'rgba(0, 242, 254, 0.12)' : 'transparent',
-                border: 'none',
-                color: selectedRange === range ? '#00f2fe' : 'var(--text-secondary)',
-                borderRadius: '6px',
-                padding: '2px 10px',
-                fontSize: '0.75rem',
-                cursor: 'pointer',
-                fontWeight: '600',
-                fontFamily: 'var(--font-title)',
-                transition: 'all 0.2s'
-              }}
-            >
-              {range}
+        <div className="chart-range-tabs">
+          {ranges.map(r => (
+            <button key={r} className={`chart-range-btn${range === r ? ' active' : ''}`} onClick={() => setRange(r)}>
+              {r}
             </button>
           ))}
         </div>
       </div>
-      <canvas
-        ref={canvasRef}
-        className="chart-canvas"
-        style={{ width: '100%', height: '180px', cursor: 'crosshair' }}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-      />
+      <div className="chart-canvas-wrap" style={{ height: 200 }}>
+        <canvas
+          ref={canvasRef}
+          style={{ width: '100%', height: '100%', cursor: 'crosshair', display: 'block' }}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => setHoverIdx(-1)}
+        />
+      </div>
     </div>
   );
 }

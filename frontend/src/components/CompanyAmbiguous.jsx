@@ -4,27 +4,24 @@ import Icon from './Icon';
 export default function CompanyAmbiguous({ run, onSelectSuggestion }) {
   const [selectedName, setSelectedName] = React.useState(null);
 
-  const userInput = run.originalUserInput || run.companyName;
-  const resolution = run.companyResolution || {};
-  const resolved = run.resolvedCompany || {};
-  const primaryName = resolved.companyName || resolution.companyName;
+  const userInput   = run.originalUserInput || run.companyName;
+  const resolution  = run.companyResolution || {};
+  const resolved    = run.resolvedCompany   || {};
+  const primaryName = resolved.companyName  || resolution.companyName;
   const alternatives = resolution.alternativeMatches || [];
-  const isPublic = resolution.isPubliclyListed !== false;
+  const isPublic    = resolution.isPubliclyListed !== false;
 
-  const allOptions = [
-    primaryName,
-    ...alternatives.filter((a) => a !== primaryName)
-  ].filter(Boolean);
+  const allOptions = [primaryName, ...alternatives.filter(a => a !== primaryName)].filter(Boolean);
 
-  const handleSelect = (name) => {
+  const handleSelect = name => {
     setSelectedName(name);
     onSelectSuggestion(name);
   };
 
   return (
-    <div className="resolution-panel ambiguous">
+    <div className="resolution-panel ambiguous" style={{ marginTop: 0 }}>
       <div className="resolution-icon-wrap">
-        <Icon name="alert" size={40} color="#f59e0b" />
+        <Icon name="alert" size={38} color="var(--color-warn)" />
       </div>
 
       <h2 className="resolution-title">Which Company Did You Mean?</h2>
@@ -35,51 +32,38 @@ export default function CompanyAmbiguous({ run, onSelectSuggestion }) {
 
       {resolution.reasoning && (
         <div className="resolution-reasoning">
-          <Icon name="info" size={16} color="var(--color-primary)" />
+          <Icon name="info" size={15} color="var(--color-brand)" />
           <span>{resolution.reasoning}</span>
         </div>
       )}
 
       {selectedName ? (
         <div className="resolution-searching">
-          <div className="loader-animation" style={{ width: 28, height: 28, margin: '0 auto 10px' }}></div>
-          <p style={{ color: 'var(--color-primary)', fontWeight: 600 }}>
-            Researching <strong>{selectedName}</strong>…
-          </p>
+          <div className="loader-spinner" style={{ width: 28, height: 28, margin: '0 auto' }}></div>
+          <p>Researching <strong>{selectedName}</strong>…</p>
         </div>
       ) : (
         <>
           {primaryName && (
-            <div className="ambiguous-primary">
+            <div style={{ marginBottom: 16 }}>
               <p className="suggestions-label">Most likely match:</p>
-              <button
-                type="button"
-                className="suggestion-chip primary"
-                onClick={() => handleSelect(primaryName)}
-              >
-                {primaryName}
-                {resolved.ticker && ` (${resolved.ticker})`}
-                {!isPublic && ' — private/unlisted'}
-              </button>
-              {!isPublic && (
-                <p className="listing-note">
-                  This company is not publicly listed, so financial research will be limited.
-                </p>
-              )}
+              <div className="suggestion-chips" style={{ justifyContent: 'center' }}>
+                <button type="button" className="suggestion-chip primary" onClick={() => handleSelect(primaryName)}>
+                  {primaryName}
+                  {resolved.ticker && ` (${resolved.ticker})`}
+                  {!isPublic && ' — private/unlisted'}
+                </button>
+              </div>
+              {!isPublic && <p className="listing-note">This company is not publicly listed — research will be limited.</p>}
             </div>
           )}
 
           {allOptions.length > 1 && (
-            <div className="resolution-suggestions">
+            <div>
               <p className="suggestions-label">Other possible matches:</p>
               <div className="suggestion-chips">
-                {allOptions.slice(1).map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className="suggestion-chip"
-                    onClick={() => handleSelect(name)}
-                  >
+                {allOptions.slice(1).map(name => (
+                  <button key={name} type="button" className="suggestion-chip" onClick={() => handleSelect(name)}>
                     {name}
                   </button>
                 ))}
@@ -89,13 +73,11 @@ export default function CompanyAmbiguous({ run, onSelectSuggestion }) {
         </>
       )}
 
-      {run.thoughtLogs && run.thoughtLogs.length > 0 && (
+      {run.thoughtLogs?.length > 0 && (
         <details className="resolution-logs">
           <summary>Resolution debug logs</summary>
-          <div className="logs-content">
-            {run.thoughtLogs.map((log, i) => (
-              <div key={i} className="log-line">{log}</div>
-            ))}
+          <div className="logs-content" style={{ marginTop: 8, borderRadius: 'var(--radius-sm)' }}>
+            {run.thoughtLogs.map((log, i) => <div key={i} className="log-line">{log}</div>)}
           </div>
         </details>
       )}

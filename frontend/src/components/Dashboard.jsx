@@ -2,513 +2,318 @@ import React, { useState } from 'react';
 import StockChart from './StockChart';
 import Icon from './Icon';
 
-export default function Dashboard({ run, onSubmitFeedback, feedbackMessage }) {
-  const [logsExpanded, setLogsExpanded] = useState(false);
-  const [feedbackStatus, setFeedbackStatus] = useState(run.feedbackStatus || 'none');
-  const [feedbackComment, setFeedbackComment] = useState(run.feedbackComment || '');
-  const [selectedTags, setSelectedTags] = useState([]);
-  const [feedbackSubmitted, setFeedbackSubmitted] = useState(run.feedbackStatus && run.feedbackStatus !== 'none');
-
-  const isInvest = run.decision === 'Invest';
-  const hasFinancials = run.financialSummary && Object.keys(run.financialSummary).length > 0 && !run.financialSummary.error;
-  const showIdentifiedBanner = run.resolvedCompany && (run.resolutionStatus === 'resolved' || !run.resolutionStatus);
-  const resolvedName = run.resolvedCompany?.companyName || run.companyName;
-  const resolvedTicker = run.resolvedCompany?.ticker || run.ticker;
-  const originalInput = run.originalUserInput;
-
-  // Audit quick-select tags
-  const auditTags = [
-    "Outdated Metrics",
-    "Incorrect Ticker",
-    "Reasoning Typo",
-    "Missing Competitor",
-    "Overconfident Score",
-    "Underconfident Score"
-  ];
-
-  const handleTagToggle = (tag) => {
-    if (selectedTags.includes(tag)) {
-      setSelectedTags(prev => prev.filter(t => t !== tag));
-    } else {
-      setSelectedTags(prev => [...prev, tag]);
-    }
-  };
-
-  // Custom Inline Markdown & Callout Renderer
-  const replaceInlineMarkdown = (text) => {
+/* ── Inline markdown renderer ── */
+function renderMarkdown(md) {
+  if (!md) return null;
+  const inline = (text) => {
     const parts = text.split(/\*\*([^*]+)\*\*/g);
-    return parts.map((part, i) => {
-      if (i % 2 === 1) {
-        return <strong key={i} style={{ color: '#ffffff', fontWeight: '700' }}>{part}</strong>;
-      }
-      return part;
-    });
+    return parts.map((p, i) =>
+      i % 2 === 1 ? <strong key={i} style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{p}</strong> : p
+    );
   };
+  return md.split(/\n\n+/).map((block, idx) => {
+    const t = block.trim();
+    if (!t) return null;
+    if (t.startsWith('> '))
+      return (
+        <div key={idx} className="reasoning-callout">
+          <Icon name="info" size={15} color="var(--color-brand)" />
+          <span>{inline(t.slice(2))}</span>
+        </div>
+      );
+    if (t.startsWith('### ')) return <h4 key={idx}>{inline(t.slice(4))}</h4>;
+    if (t.startsWith('## '))  return <h3 key={idx}>{inline(t.slice(3))}</h3>;
+    if (t.startsWith('# '))   return <h2 key={idx}>{inline(t.slice(2))}</h2>;
+    if (t.startsWith('- ') || t.startsWith('* '))
+      return <ul key={idx}>{t.split('\n').map((l, i) => <li key={i}>{inline(l.replace(/^[-*]\s+/, ''))}</li>)}</ul>;
+    if (/^\d+\.\s+/.test(t))
+      return <ol key={idx}>{t.split('\n').map((l, i) => <li key={i}>{inline(l.replace(/^\d+\.\s+/, ''))}</li>)}</ol>;
+    return <p key={idx}>{inline(t)}</p>;
+  });
+}
 
-  const renderMarkdown = (md) => {
-    if (!md) return '';
-    const blocks = md.split(/\n\n+/);
-    return blocks.map((block, index) => {
-      const text = block.trim();
-      if (!text) return null;
+/* ── Number helpers ── */
+function fmtNum(num, currency = 'USD') {
+  if (num == null) return 'N/A';
+  if (num >= 1e12) return `${(num/1e12).toFixed(2)}T`;
+  if (num >= 1e9)  return `${(num/1e9).toFixed(2)}B`;
+  if (num >= 1e6)  return `${(num/1e6).toFixed(2)}M`;
+  return num.toLocaleString('en-US');
+}
+function fmtPct(val) {
+  if (val == null) return 'N/A';
+  return `${(val * 100).toFixed(2)}%`;
+}
 
-      // Handle standard blockquote callouts
-      if (text.startsWith('> ')) {
-        const cleanQuote = text.replace(/^>\s+/, '');
-        return (
-          <blockquote key={index} className="reasoning-blockquote">
-            <Icon name="info" size={16} color="var(--color-primary)" style={{ flexShrink: 0, marginTop: '2px' }} />
-            <div>{replaceInlineMarkdown(cleanQuote)}</div>
-          </blockquote>
-        );
+/* ── SwotQuad sub-component ── */
+function SwotQuad({ type, title, items }) {
+  return (
+    <div className={`swot-quad ${type}`}>
+      <div className="swot-quad-title">{title}</div>
+      {items?.length > 0
+        ? <ul className="swot-list">{items.map((s, i) => <li key={i} className="swot-item">{s}</li>)}</ul>
+        : <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No data available.</p>
       }
+    </div>
+  );
+}
 
-      if (text.startsWith('### ')) {
-        return <h4 key={index}>{replaceInlineMarkdown(text.slice(4))}</h4>;
-      }
-      if (text.startsWith('## ')) {
-        return <h3 key={index}>{replaceInlineMarkdown(text.slice(3))}</h3>;
-      }
-      if (text.startsWith('# ')) {
-        return <h2 key={index}>{replaceInlineMarkdown(text.slice(2))}</h2>;
-      }
+export default function Dashboard({ run, onSubmitFeedback, feedbackMessage }) {
+  const [logsOpen, setLogsOpen]               = useState(false);
+  const [feedbackStatus, setFeedbackStatus]   = useState(run.feedbackStatus || 'none');
+  const [feedbackComment, setFeedbackComment] = useState(run.feedbackComment || '');
+  const [selectedTags, setSelectedTags]       = useState([]);
+  const [submitted, setSubmitted]             = useState(run.feedbackStatus && run.feedbackStatus !== 'none');
 
-      if (text.startsWith('- ') || text.startsWith('* ')) {
-        const lines = text.split('\n');
-        return (
-          <ul key={index}>
-            {lines.map((line, idx) => (
-              <li key={idx}>{replaceInlineMarkdown(line.replace(/^[-*]\s+/, ''))}</li>
-            ))}
-          </ul>
-        );
-      }
+  const isInvest      = run.decision === 'Invest';
+  const hasFinancials = run.financialSummary && Object.keys(run.financialSummary).length > 0 && !run.financialSummary.error;
+  const showBanner    = run.resolvedCompany && (run.resolutionStatus === 'resolved' || !run.resolutionStatus);
+  const resolvedName  = run.resolvedCompany?.companyName || run.companyName;
+  const resolvedTicker = run.resolvedCompany?.ticker || run.ticker;
 
-      if (/^\d+\.\s+/.test(text)) {
-        const lines = text.split('\n');
-        return (
-          <ol key={index}>
-            {lines.map((line, idx) => (
-              <li key={idx}>{replaceInlineMarkdown(line.replace(/^\d+\.\s+/, ''))}</li>
-            ))}
-          </ol>
-        );
-      }
+  const auditTags = ['Outdated Metrics','Incorrect Ticker','Reasoning Typo','Missing Competitor','Overconfident Score','Underconfident Score'];
 
-      return <p key={index}>{replaceInlineMarkdown(text)}</p>;
-    });
-  };
-
-  // Helper to format large numbers
-  const formatNumber = (num, currency = 'USD') => {
-    if (num === null || num === undefined) return 'N/A';
-    const formatter = new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency,
-      maximumFractionDigits: 0
-    });
-    
-    if (num >= 1e12) return `${(num / 1e12).toFixed(2)}T ${currency}`;
-    if (num >= 1e9) return `${(num / 1e9).toFixed(2)}B ${currency}`;
-    if (num >= 1e6) return `${(num / 1e6).toFixed(2)}M ${currency}`;
-    
-    return formatter.format(num);
-  };
-
-  const formatPercent = (val) => {
-    if (val === null || val === undefined) return 'N/A';
-    return `${(val * 100).toFixed(2)}%`;
-  };
+  const toggleTag = tag => setSelectedTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
 
   const metricFields = hasFinancials ? [
-    { label: 'Market Capitalization', value: run.financialSummary.marketCap != null ? formatNumber(run.financialSummary.marketCap, run.financialSummary.currency) : null },
-    { label: 'Valuation (P/E Ratio)', value: run.financialSummary.peRatio != null ? run.financialSummary.peRatio.toFixed(2) : null },
-    { label: 'Debt-to-Equity (D/E)', value: run.financialSummary.debtToEquity != null ? `${run.financialSummary.debtToEquity.toFixed(2)}%` : null },
-    { label: 'Gross Margin', value: run.financialSummary.grossMargin != null ? formatPercent(run.financialSummary.grossMargin) : null },
-    { label: 'Operating Margin', value: run.financialSummary.operatingMargin != null ? formatPercent(run.financialSummary.operatingMargin) : null },
-    { label: 'Profit Margin', value: run.financialSummary.profitMargin != null ? formatPercent(run.financialSummary.profitMargin) : null },
-    { label: 'Revenue Growth (YoY)', value: run.financialSummary.revenueGrowth != null ? formatPercent(run.financialSummary.revenueGrowth) : null },
-    { label: 'Free Cash Flow', value: run.financialSummary.freeCashflow != null ? formatNumber(run.financialSummary.freeCashflow, run.financialSummary.currency) : null },
-  ].filter((m) => m.value != null && m.value !== 'N/A') : [];
+    { label: 'Market Cap',      value: run.financialSummary.marketCap     != null ? fmtNum(run.financialSummary.marketCap) + ' ' + (run.financialSummary.currency||'USD') : null },
+    { label: 'P/E Ratio',       value: run.financialSummary.peRatio       != null ? run.financialSummary.peRatio.toFixed(2) : null },
+    { label: 'Debt / Equity',   value: run.financialSummary.debtToEquity  != null ? `${run.financialSummary.debtToEquity.toFixed(2)}%` : null },
+    { label: 'Gross Margin',    value: run.financialSummary.grossMargin   != null ? fmtPct(run.financialSummary.grossMargin)    : null },
+    { label: 'Operating Margin',value: run.financialSummary.operatingMargin != null ? fmtPct(run.financialSummary.operatingMargin) : null },
+    { label: 'Profit Margin',   value: run.financialSummary.profitMargin  != null ? fmtPct(run.financialSummary.profitMargin)  : null },
+    { label: 'Revenue Growth',  value: run.financialSummary.revenueGrowth != null ? fmtPct(run.financialSummary.revenueGrowth) : null },
+    { label: 'Free Cash Flow',  value: run.financialSummary.freeCashflow  != null ? fmtNum(run.financialSummary.freeCashflow) + ' ' + (run.financialSummary.currency||'USD') : null },
+  ].filter(m => m.value && m.value !== 'N/A') : [];
 
-  // Circumference of circular gauge (r = 55)
-  const radius = 55;
-  const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (run.confidence / 100) * circumference;
+  /* Confidence ring math */
+  const R   = 48;
+  const circ = 2 * Math.PI * R;
+  const offset = circ - (run.confidence / 100) * circ;
 
-  const handleFeedbackSubmit = (e) => {
+  const handleFeedbackSubmit = e => {
     e.preventDefault();
     if (feedbackStatus === 'none') return;
-    
-    // Combine tags and text comment for persistence
-    const tagPrefix = selectedTags.length > 0 ? `[Tags: ${selectedTags.join(', ')}] ` : '';
-    const fullComment = `${tagPrefix}${feedbackComment}`;
-    
-    onSubmitFeedback(run.id, feedbackStatus, fullComment);
-    setFeedbackSubmitted(true);
+    const prefix = selectedTags.length > 0 ? `[Tags: ${selectedTags.join(', ')}] ` : '';
+    onSubmitFeedback(run.id, feedbackStatus, `${prefix}${feedbackComment}`);
+    setSubmitted(true);
   };
 
   return (
-    <div className="report-layout">
-      {showIdentifiedBanner && (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+      {/* Identified banner */}
+      {showBanner && (
         <div className="identified-banner">
-          <Icon name="check" size={16} color="var(--color-invest)" />
+          <Icon name="check" size={15} color="var(--color-invest)" />
           <span>
             Identified as: <strong>{resolvedName}</strong>
             {resolvedTicker && <span className="ticker-badge-inline">{resolvedTicker}</span>}
-            {originalInput && originalInput.toLowerCase() !== resolvedName.toLowerCase() && (
-              <span className="identified-from"> (from "{originalInput}")</span>
+            {run.originalUserInput && run.originalUserInput.toLowerCase() !== resolvedName.toLowerCase() && (
+              <span className="identified-from"> (from "{run.originalUserInput}")</span>
             )}
           </span>
         </div>
       )}
 
-      {/* 1. CIO HERO DECISION CARD */}
-      <div className={`decision-card ${isInvest ? 'invest' : 'pass'}`}>
-        <div className="decision-grid">
-          <div className="decision-info">
-            <div className="company-meta">
-              <span className="company-name-large">{run.companyName}</span>
-              {run.ticker && <span className="ticker-badge-large">{run.ticker}</span>}
+      {/* ── 1. HERO DECISION CARD ── */}
+      <div className={`decision-hero ${isInvest ? 'invest' : 'pass'}`}>
+        <div className="decision-hero-grid">
+          {/* Left: company + verdict */}
+          <div>
+            <div>
+              <span className="decision-company-name">{run.companyName}</span>
+              {run.ticker && <span className="decision-ticker-badge">{run.ticker}</span>}
             </div>
-            {hasFinancials && (
-              <div className="current-price-badge">
-                Current Price: ${run.financialSummary.currentPrice?.toFixed(2)} {run.financialSummary.currency}
+            {hasFinancials && run.financialSummary.currentPrice != null && (
+              <div className="decision-price">
+                Current Price: <strong>${run.financialSummary.currentPrice.toFixed(2)} {run.financialSummary.currency}</strong>
               </div>
             )}
-            <div className="decision-badge-container">
-              <div className={`decision-badge-big ${isInvest ? 'invest' : 'pass'}`}>
-                {isInvest ? 'INVEST' : 'PASS'}
+            <div className={`decision-verdict ${isInvest ? 'invest' : 'pass'}`} style={{ marginTop: 16 }}>
+              {isInvest ? '↑ INVEST' : '↓ PASS'}
+            </div>
+          </div>
+
+          {/* Centre: confidence ring */}
+          <div className="confidence-ring-wrap">
+            <div className="confidence-ring-container">
+              <svg className="confidence-ring-svg" viewBox="0 0 120 120">
+                <circle className="conf-bg"   cx="60" cy="60" r={R} />
+                <circle className={`conf-fill ${isInvest ? 'invest' : 'pass'}`}
+                  cx="60" cy="60" r={R}
+                  strokeDasharray={circ}
+                  strokeDashoffset={offset}
+                />
+              </svg>
+              <div className="confidence-ring-center">
+                <div className="conf-pct">{run.confidence}%</div>
+                <div className="conf-lbl">Confidence</div>
               </div>
             </div>
           </div>
 
-          <div className="confidence-gauge-container">
-            <svg className="gauge-svg">
-              <circle className="gauge-bg" cx="70" cy="70" r={radius} />
-              <circle 
-                className={`gauge-fill ${isInvest ? 'invest' : 'pass'}`} 
-                cx="70" 
-                cy="70" 
-                r={radius} 
-                strokeDasharray={circumference}
-                strokeDashoffset={strokeDashoffset}
-              />
-            </svg>
-            <div className="gauge-text">
-              <span className="gauge-percent">{run.confidence}%</span>
-              <span className="gauge-label">CONFIDENCE</span>
-            </div>
-          </div>
-
-          <div className="risk-rating-container">
-            <span className="risk-label">RISK PROFILE</span>
-            <div className={`risk-badge-large ${run.riskRating?.toLowerCase()}`}>
-              {run.riskRating} RISK
+          {/* Right: risk */}
+          <div className="risk-wrap">
+            <div className="confidence-label">Risk Profile</div>
+            <div className={`risk-pill ${run.riskRating?.toLowerCase()}`}>
+              {run.riskRating} Risk
             </div>
           </div>
         </div>
       </div>
 
-      <div className="dashboard-grid">
-        {/* 2. CIO RECOMMENDATION REASONING */}
-        <div className="dashboard-panel">
-          <div className="panel-header">
-            <h3 className="panel-title">
-              <Icon name="activity" color="var(--color-primary)" size={20} />
-              CIO INVESTMENT THESIS
-            </h3>
-          </div>
-          <div className="reasoning-text">
-            {renderMarkdown(run.reasoning)}
+      {/* ── 2. KEY METRICS ROW ── */}
+      {metricFields.length > 0 && (
+        <div className="metrics-row">
+          {metricFields.map(m => {
+            const isGrowth = m.label.includes('Growth') || m.label.includes('Margin') || m.label.includes('Cash');
+            const numVal   = parseFloat(m.value);
+            const changeClass = isGrowth ? (numVal >= 0 ? 'positive' : 'negative') : 'neutral';
+            return (
+              <div key={m.label} className="metric-card">
+                <div className="metric-card-label">{m.label}</div>
+                <div className="metric-card-value">{m.value}</div>
+                <div className="metric-bar"><div className="metric-bar-fill" style={{ width: `${Math.min(Math.abs(numVal) / 2, 100)}%` }} /></div>
+                <div className={`metric-card-change ${changeClass}`}>
+                  {changeClass === 'positive' ? '▲' : changeClass === 'negative' ? '▼' : '—'}
+                  {isGrowth ? m.value : ''}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── 3. THESIS + CHART/FEEDBACK COLUMNS ── */}
+      <div className="content-grid-2">
+        {/* CIO Thesis */}
+        <div className="card">
+          <div className="card-padded">
+            <div className="card-header">
+              <div className="card-title">
+                <div className="card-title-icon"><Icon name="activity" size={15} color="var(--color-brand)" /></div>
+                CIO Investment Thesis
+              </div>
+            </div>
+            <div className="reasoning-prose">
+              {renderMarkdown(run.reasoning)}
+            </div>
           </div>
         </div>
 
-        {/* 3. CHART & PERSISTENCE FEEDBACK */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-          {/* Chart Panel */}
-          {run.chartData && run.chartData.length > 0 && (
-            <div className="dashboard-panel">
-              <div className="panel-header">
-                <h3 className="panel-title">
-                  <Icon name="trending" color="var(--color-primary)" size={20} />
-                  MARKET HISTORY
-                </h3>
-              </div>
+        {/* Right column: chart + feedback */}
+        <div className="content-stack">
+          {run.chartData?.length > 0 && (
+            <div className="card chart-card">
               <StockChart data={run.chartData} ticker={run.ticker} />
             </div>
           )}
 
-          {/* Feedback Form Panel */}
-          <div className="dashboard-panel">
-            <div className="panel-header">
-              <h3 className="panel-title">
-                <Icon name="message" color="var(--color-primary)" size={20} />
-                AUDIT & FEEDBACK
-              </h3>
+          {/* Feedback */}
+          <div className="card card-padded">
+            <div className="card-header">
+              <div className="card-title">
+                <div className="card-title-icon"><Icon name="message" size={15} color="var(--color-brand)" /></div>
+                Audit & Feedback
+              </div>
             </div>
-            
-            {feedbackSubmitted ? (
-              <div style={{ textAlign: 'center', padding: '10px 0' }}>
-                <div style={{ marginBottom: '12px' }}>
-                  <Icon name="check" color="var(--color-invest)" size={32} />
+
+            {submitted ? (
+              <div className="feedback-success">
+                <div className="feedback-success-icon"><Icon name="check" size={28} color="var(--color-invest)" /></div>
+                <div className="feedback-success-title">Feedback Registered</div>
+                <div className="feedback-success-msg">
+                  Rated "{feedbackStatus === 'helpful' ? 'Agree / Helpful' : 'Disagree / Audit'}"
                 </div>
-                <div style={{ fontWeight: '700', fontSize: '0.95rem', marginBottom: '6px' }}>Feedback Registered</div>
-                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  Decision rating set to "{feedbackStatus === 'helpful' ? 'Approved (Helpful)' : 'Needs Audit (Unhelpful)'}"
-                </p>
                 {feedbackComment && (
-                  <div style={{ 
-                    marginTop: '12px', 
-                    padding: '12px', 
-                    background: 'rgba(255,255,255,0.015)', 
-                    borderRadius: '8px',
-                    fontSize: '0.75rem',
-                    textAlign: 'left',
-                    color: 'var(--text-secondary)',
-                    border: '1px solid var(--border-glass)',
-                    lineHeight: '1.4'
-                  }}>
+                  <div style={{ marginTop: 10, padding: '8px 12px', background: 'var(--bg-surface-2)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'left', border: '1px solid var(--border)' }}>
                     {feedbackComment}
                   </div>
                 )}
-                <button
-                  onClick={() => setFeedbackSubmitted(false)}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--color-primary-dark)',
-                    fontSize: '0.8rem',
-                    marginTop: '14px',
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                    fontWeight: '600'
-                  }}
-                >
-                  Edit Feedback
-                </button>
+                <button className="btn-ghost" style={{ marginTop: 12 }} onClick={() => setSubmitted(false)}>Edit Feedback</button>
               </div>
             ) : (
-              <form onSubmit={handleFeedbackSubmit} className="feedback-box">
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  Rate the AI agent's decision accuracy:
-                </div>
-                <div className="feedback-buttons">
-                  <button
-                    type="button"
-                    className={`feedback-btn ${feedbackStatus === 'helpful' ? 'active helpful' : ''}`}
-                    onClick={() => setFeedbackStatus('helpful')}
-                  >
-                    <Icon name="thumbsUp" size={16} /> Agree / Helpful
+              <form onSubmit={handleFeedbackSubmit} className="feedback-section">
+                <div className="feedback-note">Rate the AI agent's decision accuracy:</div>
+                <div className="feedback-btns">
+                  <button type="button" className={`feedback-vote-btn${feedbackStatus === 'helpful' ? ' active-helpful' : ''}`} onClick={() => setFeedbackStatus('helpful')}>
+                    <Icon name="thumbsUp" size={15} /> Agree
                   </button>
-                  <button
-                    type="button"
-                    className={`feedback-btn ${feedbackStatus === 'unhelpful' ? 'active unhelpful' : ''}`}
-                    onClick={() => setFeedbackStatus('unhelpful')}
-                  >
-                    <Icon name="thumbsDown" size={16} /> Disagree / Audit
+                  <button type="button" className={`feedback-vote-btn${feedbackStatus === 'unhelpful' ? ' active-unhelpful' : ''}`} onClick={() => setFeedbackStatus('unhelpful')}>
+                    <Icon name="thumbsDown" size={15} /> Audit
                   </button>
                 </div>
-                
-                {/* Audit quick select tags */}
                 {feedbackStatus !== 'none' && (
-                  <div style={{ marginTop: '10px' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: '600' }}>
-                      Select audit labels (optional):
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                      {auditTags.map(tag => {
-                        const isSelected = selectedTags.includes(tag);
-                        return (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => handleTagToggle(tag)}
-                            style={{
-                              background: isSelected ? 'rgba(0, 242, 254, 0.12)' : 'rgba(255,255,255,0.02)',
-                              border: '1px solid',
-                              borderColor: isSelected ? '#00f2fe' : 'var(--border-glass)',
-                              color: isSelected ? '#00f2fe' : 'var(--text-secondary)',
-                              borderRadius: '20px',
-                              padding: '4px 10px',
-                              fontSize: '0.7rem',
-                              cursor: 'pointer',
-                              fontWeight: '600',
-                              transition: 'all 0.2s'
-                            }}
-                          >
-                            {tag}
-                          </button>
-                        );
-                      })}
-                    </div>
+                  <div className="audit-tags">
+                    {auditTags.map(tag => (
+                      <button key={tag} type="button" className={`audit-tag-btn${selectedTags.includes(tag) ? ' selected' : ''}`} onClick={() => toggleTag(tag)}>
+                        {tag}
+                      </button>
+                    ))}
                   </div>
                 )}
-                
-                <textarea
-                  className="feedback-textarea"
-                  placeholder="Leave any auditor comments or correction notes..."
-                  value={feedbackComment}
-                  onChange={(e) => setFeedbackComment(e.target.value)}
-                />
-                
-                <button 
-                  type="submit" 
-                  className="submit-feedback-btn"
-                  disabled={feedbackStatus === 'none'}
-                >
-                  Submit Audit Run
-                </button>
-                {feedbackMessage && (
-                  <div style={{ fontSize: '0.8rem', color: 'var(--color-invest)' }}>{feedbackMessage}</div>
-                )}
+                <textarea className="feedback-textarea" placeholder="Leave auditor comments or correction notes…" value={feedbackComment} onChange={e => setFeedbackComment(e.target.value)} />
+                <button type="submit" className="btn-brand" disabled={feedbackStatus === 'none'}>Submit Audit</button>
+                {feedbackMessage && <div style={{ fontSize: '0.78rem', color: 'var(--color-invest)' }}>{feedbackMessage}</div>}
               </form>
             )}
           </div>
         </div>
       </div>
 
-      {/* 4. KEY METRICS GRID (IF PUBLIC) — only metrics with actual data */}
-      {metricFields.length > 0 && (
-        <div className="dashboard-panel">
-          <div className="panel-header">
-            <h3 className="panel-title">
-              <Icon name="database" color="var(--color-primary)" size={20} />
-              KEY FINANCIAL METRICS
-            </h3>
+      {/* ── 4. SWOT GRID ── */}
+      <div className="card card-padded">
+        <div className="card-header">
+          <div className="card-title">
+            <div className="card-title-icon"><Icon name="shield" size={15} color="var(--color-brand)" /></div>
+            SWOT Analysis
           </div>
-          <div className="metrics-grid">
-            {metricFields.map((metric) => (
-              <div key={metric.label} className="metric-item">
-                <span className="metric-label">{metric.label}</span>
-                <span className="metric-value">{metric.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 5. FUNDAMENTALS AND SENTIMENT HIGHLIGHTS (SWOT GRID) */}
-      <div className="dashboard-panel">
-        <div className="panel-header">
-          <h3 className="panel-title">
-            <Icon name="shield" color="var(--color-primary)" size={20} />
-            SWOT ANALYSIS SUMMARY
-          </h3>
         </div>
         <div className="swot-grid">
-          {/* Strengths */}
-          <div className="swot-card strengths">
-            <div className="swot-card-header">Core Strengths</div>
-            <ul className="swot-list">
-              {run.fundamentalAnalysis?.strengths && run.fundamentalAnalysis.strengths.length > 0 ? (
-                run.fundamentalAnalysis.strengths.map((str, idx) => (
-                  <li key={idx} className="swot-item">{str}</li>
-                ))
-              ) : (
-                <li style={{ listStyleType: 'none', color: 'var(--text-secondary)', opacity: 0.6, fontSize: '0.82rem', paddingLeft: 0 }}>
-                  No core strengths recorded. Run a new research query to generate SWOT data.
-                </li>
-              )}
-            </ul>
-          </div>
-
-          {/* Weaknesses */}
-          <div className="swot-card weaknesses">
-            <div className="swot-card-header">Vulnerabilities</div>
-            <ul className="swot-list">
-              {run.fundamentalAnalysis?.weaknesses && run.fundamentalAnalysis.weaknesses.length > 0 ? (
-                run.fundamentalAnalysis.weaknesses.map((weak, idx) => (
-                  <li key={idx} className="swot-item">{weak}</li>
-                ))
-              ) : (
-                <li style={{ listStyleType: 'none', color: 'var(--text-secondary)', opacity: 0.6, fontSize: '0.82rem', paddingLeft: 0 }}>
-                  No vulnerabilities recorded. Run a new research query to generate SWOT data.
-                </li>
-              )}
-            </ul>
-          </div>
-
-          {/* Opportunities */}
-          <div className="swot-card opportunities">
-            <div className="swot-card-header">Opportunities</div>
-            <ul className="swot-list">
-              {run.sentimentAnalysis?.opportunities && run.sentimentAnalysis.opportunities.length > 0 ? (
-                run.sentimentAnalysis.opportunities.map((opp, idx) => (
-                  <li key={idx} className="swot-item">{opp}</li>
-                ))
-              ) : (
-                <li style={{ listStyleType: 'none', color: 'var(--text-secondary)', opacity: 0.6, fontSize: '0.82rem', paddingLeft: 0 }}>
-                  No opportunities recorded. Run a new research query to generate SWOT data.
-                </li>
-              )}
-            </ul>
-          </div>
-
-          {/* Threats */}
-          <div className="swot-card threats">
-            <div className="swot-card-header">Risk Headwinds</div>
-            <ul className="swot-list">
-              {run.sentimentAnalysis?.threats && run.sentimentAnalysis.threats.length > 0 ? (
-                run.sentimentAnalysis.threats.map((thr, idx) => (
-                  <li key={idx} className="swot-item">{thr}</li>
-                ))
-              ) : (
-                <li style={{ listStyleType: 'none', color: 'var(--text-secondary)', opacity: 0.6, fontSize: '0.82rem', paddingLeft: 0 }}>
-                  No risk headwinds recorded. Run a new research query to generate SWOT data.
-                </li>
-              )}
-            </ul>
-          </div>
+          <SwotQuad type="strengths"     title="Core Strengths"   items={run.fundamentalAnalysis?.strengths} />
+          <SwotQuad type="weaknesses"    title="Vulnerabilities"  items={run.fundamentalAnalysis?.weaknesses} />
+          <SwotQuad type="opportunities" title="Opportunities"    items={run.sentimentAnalysis?.opportunities} />
+          <SwotQuad type="threats"       title="Risk Headwinds"   items={run.sentimentAnalysis?.threats} />
         </div>
       </div>
 
-      {/* 6. WEB SEARCH DATA SOURCES */}
-      {run.searchResults && run.searchResults.length > 0 && (
-        <div className="dashboard-panel">
-          <div className="panel-header">
-            <h3 className="panel-title">
-              <Icon name="globe" color="var(--color-primary)" size={20} />
-              SOURCE CITATIONS (FREE DATA)
-            </h3>
+      {/* ── 5. SOURCE CITATIONS ── */}
+      {run.searchResults?.length > 0 && (
+        <div className="card card-padded">
+          <div className="card-header">
+            <div className="card-title">
+              <div className="card-title-icon"><Icon name="globe" size={15} color="var(--color-brand)" /></div>
+              Source Citations
+            </div>
           </div>
-          <div className="snippets-list">
-            {run.searchResults.map((snip, idx) => (
-              <div key={idx} className="snippet-card">
-                <div className="snippet-title-row">
-                  <span className="snippet-title">{snip.title}</span>
-                  {snip.link && (
-                    <a href={snip.link} target="_blank" rel="noreferrer" className="snippet-link">
-                      {snip.link}
-                    </a>
-                  )}
+          <div className="snippet-list">
+            {run.searchResults.map((s, i) => (
+              <div key={i} className="snippet-item">
+                <div className="snippet-item-top">
+                  <span className="snippet-item-title">{s.title}</span>
+                  {s.link && <a href={s.link} target="_blank" rel="noreferrer" className="snippet-item-link">{s.link}</a>}
                 </div>
-                <p className="snippet-desc">{snip.snippet}</p>
+                <p className="snippet-item-desc">{s.snippet}</p>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* 7. COLLAPSIBLE AGENT THOUGHT LOGS */}
-      {run.thoughtLogs && run.thoughtLogs.length > 0 && (
-        <div className="collapsible-logs">
-          <div className="logs-header" onClick={() => setLogsExpanded(!logsExpanded)}>
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Icon name="cpu" color="var(--color-primary)" size={20} />
-              INTERNAL AGENT THOUGHT LOGS
-            </h3>
-            <span style={{ fontSize: '1.2rem', transform: logsExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}>
-              ▶
+      {/* ── 6. AGENT THOUGHT LOGS ── */}
+      {run.thoughtLogs?.length > 0 && (
+        <div className="card" style={{ overflow: 'hidden' }}>
+          <button className="logs-toggle" onClick={() => setLogsOpen(o => !o)}>
+            <span className="logs-toggle-title">
+              <Icon name="cpu" size={15} color="var(--text-muted)" />
+              Internal Agent Thought Logs
             </span>
-          </div>
-          {logsExpanded && (
+            <span className={`logs-toggle-arrow${logsOpen ? ' open' : ''}`}>▶</span>
+          </button>
+          {logsOpen && (
             <div className="logs-content">
-              {run.thoughtLogs.map((log, index) => (
-                <div key={index} className="log-line">
-                  {log}
-                </div>
-              ))}
+              {run.thoughtLogs.map((log, i) => <div key={i} className="log-line">{log}</div>)}
             </div>
           )}
         </div>
