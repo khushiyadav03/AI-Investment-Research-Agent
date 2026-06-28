@@ -9,6 +9,8 @@ import LimitedDataReport from './components/LimitedDataReport';
 import NotificationsDropdown from './components/NotificationsDropdown';
 import WatchlistPage from './pages/WatchlistPage';
 import SettingsPage from './pages/SettingsPage';
+import DocumentationPage from './pages/DocumentationPage';
+import FeedbackPage from './pages/FeedbackPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import Icon from './components/Icon';
@@ -311,12 +313,20 @@ export default function App() {
   };
 
   const renderPage = () => {
-    if (activePage === 'watchlist') return <WatchlistPage watchlist={watchlist} onResearch={handleWatchlistResearch} />;
-    if (activePage === 'settings')  return <SettingsPage theme={theme} onToggleTheme={toggleTheme} />;
+    if (activePage === 'watchlist')     return <WatchlistPage     watchlist={watchlist} onResearch={handleWatchlistResearch} />;
+    if (activePage === 'settings')      return <SettingsPage      theme={theme} onToggleTheme={toggleTheme} />;
+    if (activePage === 'documentation') return <DocumentationPage />;
+    if (activePage === 'feedback')      return <FeedbackPage />;
     return renderResearchContent();
   };
 
-  const pageTitle = activePage === 'watchlist' ? 'Watchlist' : activePage === 'settings' ? 'Settings' : activeRun ? (activeRun.companyName || 'Research Report') : 'Research';
+  const PAGE_TITLES = {
+    watchlist:     'Watchlist',
+    settings:      'Settings',
+    documentation: 'Documentation',
+    feedback:      'Feedback',
+  };
+  const pageTitle = PAGE_TITLES[activePage] || (activeRun ? (activeRun.companyName || 'Research Report') : 'Research');
 
   // Navbar avatar initials from real user
   const userInitials = currentUser?.name

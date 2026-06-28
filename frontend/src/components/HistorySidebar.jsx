@@ -15,19 +15,25 @@ export default function HistorySidebar({
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
     try {
-      const parts = dateStr.split(' ');
+      const parts     = dateStr.split(' ');
       const dateParts = parts[0].split('-');
       const timeParts = parts[1]?.split(':') || [];
-      const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const months    = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
       return `${months[parseInt(dateParts[1])-1]} ${dateParts[2]}, ${timeParts[0]}:${timeParts[1]}`;
     } catch { return dateStr; }
   };
 
-  const navItems = [
-    { id: 'research',   label: 'Research',  icon: 'search',   badge: null },
-    { id: 'history',    label: 'History',   icon: 'history',  badge: runs.length || null },
-    { id: 'watchlist',  label: 'Watchlist', icon: 'trending', badge: null },
-    { id: 'settings',   label: 'Settings',  icon: 'shield',   badge: null },
+  // ── Main nav — no History button ─────────────────────────────
+  const mainNav = [
+    { id: 'research',       label: 'Research',       icon: 'search',   badge: null },
+    { id: 'watchlist',      label: 'Watchlist',      icon: 'trending', badge: null },
+    { id: 'settings',       label: 'Settings',       icon: 'shield',   badge: null },
+  ];
+
+  // ── Support nav ──────────────────────────────────────────────
+  const supportNav = [
+    { id: 'documentation',  label: 'Documentation',  icon: 'info',     badge: null },
+    { id: 'feedback',       label: 'Feedback',       icon: 'message',  badge: null },
   ];
 
   const handleNavClick = (id) => {
@@ -35,9 +41,26 @@ export default function HistorySidebar({
     else onNavigate(id);
   };
 
+  const NavBtn = ({ item }) => {
+    const isActive = activePage === item.id;
+    return (
+      <button
+        className={`nav-item${isActive ? ' active' : ''}${collapsed ? ' nav-item-icon-only' : ''}`}
+        onClick={() => handleNavClick(item.id)}
+        title={collapsed ? item.label : undefined}
+      >
+        <Icon name={item.icon} size={16} color={isActive ? '#FFFFFF' : 'currentColor'} />
+        {!collapsed && <span className="nav-item-label">{item.label}</span>}
+        {!collapsed && item.badge != null && <span className="nav-item-badge">{item.badge}</span>}
+        {collapsed  && item.badge != null && <span className="nav-item-badge-dot" />}
+      </button>
+    );
+  };
+
   return (
     <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
-      {/* Logo row */}
+
+      {/* ── Logo ── */}
       <div className="sidebar-logo">
         {!collapsed && (
           <div className="logo-mark" onClick={onNewSearch}>
@@ -65,34 +88,17 @@ export default function HistorySidebar({
         </button>
       </div>
 
-      {/* Nav body */}
+      {/* ── Nav body ── */}
       <div className="sidebar-body">
+
+        {/* Pages section */}
         {!collapsed && <div className="sidebar-section-label">Pages</div>}
+        {mainNav.map(item => <NavBtn key={item.id} item={item} />)}
 
-        {navItems.map(item => {
-          const isActive = activePage === item.id;
-          return (
-            <button
-              key={item.id}
-              className={`nav-item${isActive ? ' active' : ''}${collapsed ? ' nav-item-icon-only' : ''}`}
-              onClick={() => handleNavClick(item.id)}
-              title={collapsed ? item.label : undefined}
-            >
-              <Icon name={item.icon} size={16} color={isActive ? '#FFFFFF' : 'currentColor'} />
-              {!collapsed && <span className="nav-item-label">{item.label}</span>}
-              {!collapsed && item.badge != null && (
-                <span className="nav-item-badge">{item.badge}</span>
-              )}
-              {collapsed && item.badge != null && (
-                <span className="nav-item-badge-dot" />
-              )}
-            </button>
-          );
-        })}
-
+        {/* Recent research history list */}
         {!collapsed && (
           <>
-            <div className="sidebar-section-label" style={{ marginTop: '8px' }}>Research History</div>
+            <div className="sidebar-section-label" style={{ marginTop: 8 }}>Recent Research</div>
             {runs.length === 0 ? (
               <div style={{ padding: '16px 8px', textAlign: 'center', fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                 No reports yet.
@@ -117,29 +123,14 @@ export default function HistorySidebar({
                 ))}
               </div>
             )}
-
-            <div className="sidebar-section-label" style={{ marginTop: '8px' }}>Support</div>
-            <button className="nav-item" onClick={onNewSearch}>
-              <Icon name="info" size={16} color="currentColor" />
-              <span className="nav-item-label">Documentation</span>
-            </button>
-            <button className="nav-item">
-              <Icon name="message" size={16} color="currentColor" />
-              <span className="nav-item-label">Feedback</span>
-            </button>
           </>
         )}
 
-        {collapsed && (
-          <>
-            <button className="nav-item nav-item-icon-only" title="Documentation" onClick={onNewSearch}>
-              <Icon name="info" size={16} color="currentColor" />
-            </button>
-            <button className="nav-item nav-item-icon-only" title="Feedback">
-              <Icon name="message" size={16} color="currentColor" />
-            </button>
-          </>
-        )}
+        {/* Support section */}
+        {!collapsed && <div className="sidebar-section-label" style={{ marginTop: 8 }}>Support</div>}
+        {collapsed   && <div style={{ height: 8 }} />}
+        {supportNav.map(item => <NavBtn key={item.id} item={item} />)}
+
       </div>
 
       {!collapsed && (
