@@ -31,13 +31,20 @@ export function useNotifications(userId) {
   // ── FETCH from Appwrite ──────────────────────────────────────
   useEffect(() => {
     if (!userId || !isConfigured()) return;
+    // Note: only query on indexed attributes that exist in your collection schema.
+    // Removed orderDesc('timestamp') — add the index in Appwrite console if needed.
     databases.listDocuments(DB_ID, NOTIFICATIONS_COL, [
       Query.equal('userId', userId),
-      Query.orderDesc('timestamp'),
       Query.limit(50),
     ])
     .then(res => {
-      if (res.documents.length > 0) setAllItems(res.documents.map(docToItem));
+      if (res.documents.length > 0) {
+        // Sort client-side by $createdAt (always available) descending
+        const sorted = res.documents
+          .slice()
+          .sort((a, b) => new Date(b.$createdAt) - new Date(a.$createdAt));
+        setAllItems(sorted.map(docToItem));
+      }
     })
     .catch(err => console.error('[Notifications] fetch error:', err?.message));
   }, [userId]);
@@ -91,11 +98,13 @@ export function useNotifications(userId) {
     try {
       const doc = await databases.createDocument(DB_ID, NOTIFICATIONS_COL, ID.unique(), {
         userId,
-        type:      item.type,
-        title:     item.title,
-        message:   item.message,
-        read:      false,
-        timestamp: item.timestamp,
+        type:    item.type,
+        title:   item.title,
+        message: item.message,
+        read:    false,
+        // Only include 'timestamp' if your collection schema has this attribute.
+        // If you get a "Missing required attribute" error, remove this line.
+        // timestamp: item.timestamp,
       });
       setAllItems(prev => prev.map(n => n.id === localId ? docToItem(doc) : n));
     } catch (err) {
@@ -117,6 +126,7 @@ function docToItem(doc) {
     $id: doc.$id, id: doc.$id,
     type: doc.type, title: doc.title,
     message: doc.message, read: doc.read,
-    timestamp: doc.timestamp,
+    // Use custom 'timestamp' field if it exists, otherwise fall back to Appwrite's built-in $createdAt
+    timestamp: doc.timestamp || doc.$createdAt,
   };
 }

@@ -2006,3 +2006,105 @@ input, textarea, select { font-family: var(--font-body); }
 
 .auth-loading-screen .loader-spinner { margin: 0; }
 .auth-loading-screen p { font-size: 0.875rem; color: var(--text-muted); }
+
+/* ============================================================
+   DARK THEME — overrides all CSS variables when
+   data-theme="dark" is set on <html> or .app-shell
+   ============================================================ */
+[data-theme="dark"] {
+  --bg-app:       #0F1117;
+  --bg-surface:   #1A1D27;
+  --bg-surface-2: #22263A;
+  --bg-sidebar:   #13151F;
+  --bg-navbar:    #13151F;
+
+  --border:       #2D3148;
+  --border-focus: #FF8A00;
+
+  --text-primary:   #F0F2F8;
+  --text-secondary: #8B92A8;
+  --text-muted:     #565D7A;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4),  0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.3);
+  --shadow-lg: 0 10px 40px rgba(0,0,0,0.6),0 4px 12px rgba(0,0,0,0.4);
+
+  /* Keep brand gradient & semantic colors — they work on dark too */
+  --color-invest-bg:     rgba(31,170,89,0.15);
+  --color-invest-border: rgba(31,170,89,0.35);
+  --color-pass-bg:       rgba(232,55,42,0.15);
+  --color-pass-border:   rgba(232,55,42,0.35);
+  --color-warn-bg:       rgba(245,158,11,0.15);
+}
+
+/* Scrollbars in dark mode */
+[data-theme="dark"] ::-webkit-scrollbar-thumb          { background: #2D3148; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover    { background: #3D4460; }
+
+/* Logs panel */
+[data-theme="dark"] .logs-content { background: #0A0C14; color: #6A7A9B; }
+
+/* Auth page dark */
+[data-theme="dark"] .auth-page  { background: var(--bg-app); }
+[data-theme="dark"] .auth-card  { background: var(--bg-surface); border-color: var(--border); }
+
+/* Settings inputs */
+[data-theme="dark"] .settings-input {
+  background: var(--bg-surface-2);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .settings-input:focus {
+  background: var(--bg-surface);
+  border-color: var(--border-focus);
+}
+
+/* Feedback textarea */
+[data-theme="dark"] .feedback-textarea {
+  background: var(--bg-surface-2);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+/* Notification dropdown */
+[data-theme="dark"] .notif-dropdown {
+  background: var(--bg-surface);
+  border-color: var(--border);
+}
+[data-theme="dark"] .notif-item:hover  { background: var(--bg-surface-2); }
+[data-theme="dark"] .notif-unread      { background: rgba(255,138,0,0.07); }
+
+/* Hero search */
+[data-theme="dark"] .hero-search-wrap {
+  background: var(--bg-surface);
+  border-color: var(--border);
+}
+[data-theme="dark"] .hero-search-wrap:focus-within {
+  background: var(--bg-surface);
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 4px rgba(255,138,0,0.15), var(--shadow-md);
+}
+[data-theme="dark"] .hero-search-input { color: var(--text-primary); }
+
+/* Navbar search */
+[data-theme="dark"] .navbar-search-wrap { background: var(--bg-surface-2); border-color: var(--border); }
+[data-theme="dark"] .navbar-search-input { color: var(--text-primary); }
+
+/* Metric cards */
+[data-theme="dark"] .metric-card     { background: var(--bg-surface); border-color: var(--border); }
+[data-theme="dark"] .metric-bar      { background: var(--bg-surface-2); }
+
+/* Snippet items */
+[data-theme="dark"] .snippet-item    { background: var(--bg-surface-2); border-color: var(--border); }
+
+/* SWOT quads */
+[data-theme="dark"] .swot-quad.strengths     { background: rgba(31,170,89,0.12);  border-color: rgba(31,170,89,0.30); }
+[data-theme="dark"] .swot-quad.weaknesses    { background: rgba(232,55,42,0.12);  border-color: rgba(232,55,42,0.30); }
+[data-theme="dark"] .swot-quad.opportunities { background: rgba(59,130,246,0.10); border-color: rgba(59,130,246,0.25); }
+[data-theme="dark"] .swot-quad.threats       { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.25); }
+
+/* Watchlist cards */
+[data-theme="dark"] .watchlist-card  { background: var(--bg-surface); border-color: var(--border); }
+
+/* Landing step cards */
+[data-theme="dark"] .landing-step-card { background: var(--bg-surface); border-color: var(--border); }

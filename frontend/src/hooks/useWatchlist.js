@@ -20,17 +20,20 @@ export function useWatchlist(userId) {
   const [items, setItems]   = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // ── FETCH (swap: databases.listDocuments → your backend call) ──
+  // ── FETCH ──
   const fetchItems = useCallback(async () => {
     if (!userId || !DB_ID || !WATCHLIST_COL) return;
     setLoading(true);
     try {
       const res = await databases.listDocuments(DB_ID, WATCHLIST_COL, [
         Query.equal('userId', userId),
-        Query.orderDesc('addedAt'),
         Query.limit(100),
       ]);
-      setItems(res.documents.map(docToItem));
+      // Sort client-side descending by $createdAt (always available)
+      const sorted = res.documents
+        .slice()
+        .sort((a, b) => new Date(b.$createdAt) - new Date(a.$createdAt));
+      setItems(sorted.map(docToItem));
     } catch (err) {
       console.error('[Watchlist] fetch error:', err);
     } finally {
@@ -40,23 +43,23 @@ export function useWatchlist(userId) {
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
-  // ── ADD (swap: databases.createDocument → your backend call) ──
+  // ── ADD ──
   const addItem = useCallback(async (run) => {
     if (!userId || !DB_ID || !WATCHLIST_COL) return;
-    if (items.some(i => i.companyName === run.companyName)) return; // already watching
+    if (items.some(i => i.companyName === run.companyName)) return;
 
+    // Map our field names to whatever your Appwrite schema uses.
+    // Your schema has 'symbol' as the ticker field — adjust below if different.
     const doc = {
       userId,
-      companyName:  run.companyName,
-      ticker:       run.ticker       || '',
-      decision:     run.decision     || '',
-      confidence:   run.confidence   ?? 0,
-      riskRating:   run.riskRating   || '',
-      addedAt:      new Date().toISOString(),
+      companyName: run.companyName,
+      symbol:      run.ticker     || '',   // ← Appwrite schema uses 'symbol' for ticker
+      decision:    run.decision   || '',
+      confidence:  run.confidence ?? 0,
+      riskRating:  run.riskRating || '',
     };
 
-    // Optimistic update
-    const optimistic = { id: 'temp-' + Date.now(), ...doc, addedAt: doc.addedAt };
+    const optimistic = { id: 'temp-' + Date.now(), companyName: doc.companyName, ticker: doc.symbol, decision: doc.decision, confidence: doc.confidence, riskRating: doc.riskRating, addedAt: new Date().toISOString() };
     setItems(prev => [optimistic, ...prev]);
 
     try {
@@ -64,7 +67,7 @@ export function useWatchlist(userId) {
       setItems(prev => prev.map(i => i.id === optimistic.id ? docToItem(created) : i));
     } catch (err) {
       console.error('[Watchlist] add error:', err);
-      setItems(prev => prev.filter(i => i.id !== optimistic.id)); // rollback
+      setItems(prev => prev.filter(i => i.id !== optimistic.id));
     }
   }, [userId, items]);
 
@@ -98,10 +101,10 @@ function docToItem(doc) {
     id:          doc.$id,
     userId:      doc.userId,
     companyName: doc.companyName,
-    ticker:      doc.ticker      || null,
+    ticker:      doc.symbol      || doc.ticker || null,  // schema uses 'symbol'
     decision:    doc.decision    || null,
     confidence:  doc.confidence  ?? null,
     riskRating:  doc.riskRating  || null,
-    addedAt:     doc.addedAt,
+    addedAt:     doc.$createdAt  || doc.addedAt || null,
   };
 }
