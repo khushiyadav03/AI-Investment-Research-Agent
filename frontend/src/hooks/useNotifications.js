@@ -31,22 +31,28 @@ export function useNotifications(userId) {
   // ── FETCH from Appwrite ──────────────────────────────────────
   useEffect(() => {
     if (!userId || !isConfigured()) return;
-    // Note: only query on indexed attributes that exist in your collection schema.
-    // Removed orderDesc('timestamp') — add the index in Appwrite console if needed.
     databases.listDocuments(DB_ID, NOTIFICATIONS_COL, [
       Query.equal('userId', userId),
       Query.limit(50),
     ])
     .then(res => {
       if (res.documents.length > 0) {
-        // Sort client-side by $createdAt (always available) descending
         const sorted = res.documents
           .slice()
           .sort((a, b) => new Date(b.$createdAt) - new Date(a.$createdAt));
         setAllItems(sorted.map(docToItem));
       }
     })
-    .catch(err => console.error('[Notifications] fetch error:', err?.message));
+    .catch(err => {
+      // 401 = Appwrite collection permissions not set for logged-in users.
+      // Fix in Appwrite Console → Database → notifications collection → Settings → Permissions
+      // → Add role "Users" with Read + Create + Update + Delete checked.
+      if (err?.code === 401) {
+        console.warn('[Notifications] Permission denied (401). Go to Appwrite Console → your notifications collection → Settings → Permissions → add role "Users" with read/write access.');
+      } else {
+        console.error('[Notifications] fetch error:', err?.message);
+      }
+    });
   }, [userId]);
 
   // ── MARK ONE READ ────────────────────────────────────────────

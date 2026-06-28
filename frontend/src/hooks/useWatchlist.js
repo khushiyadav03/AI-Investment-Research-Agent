@@ -48,18 +48,20 @@ export function useWatchlist(userId) {
     if (!userId || !DB_ID || !WATCHLIST_COL) return;
     if (items.some(i => i.companyName === run.companyName)) return;
 
-    // Map our field names to whatever your Appwrite schema uses.
-    // Your schema has 'symbol' as the ticker field — adjust below if different.
+    // Map our field names to your Appwrite schema.
+    // Your schema has: symbol (ticker), addedAt (datetime, required)
+    const now = new Date().toISOString();
     const doc = {
       userId,
       companyName: run.companyName,
-      symbol:      run.ticker     || '',   // ← Appwrite schema uses 'symbol' for ticker
+      symbol:      run.ticker     || '',
       decision:    run.decision   || '',
       confidence:  run.confidence ?? 0,
       riskRating:  run.riskRating || '',
+      addedAt:     now,
     };
 
-    const optimistic = { id: 'temp-' + Date.now(), companyName: doc.companyName, ticker: doc.symbol, decision: doc.decision, confidence: doc.confidence, riskRating: doc.riskRating, addedAt: new Date().toISOString() };
+    const optimistic = { id: 'temp-' + Date.now(), companyName: doc.companyName, ticker: doc.symbol, decision: doc.decision, confidence: doc.confidence, riskRating: doc.riskRating, addedAt: now };
     setItems(prev => [optimistic, ...prev]);
 
     try {
@@ -101,10 +103,10 @@ function docToItem(doc) {
     id:          doc.$id,
     userId:      doc.userId,
     companyName: doc.companyName,
-    ticker:      doc.symbol      || doc.ticker || null,  // schema uses 'symbol'
+    ticker:      doc.symbol      || doc.ticker || null,
     decision:    doc.decision    || null,
     confidence:  doc.confidence  ?? null,
     riskRating:  doc.riskRating  || null,
-    addedAt:     doc.$createdAt  || doc.addedAt || null,
+    addedAt:     doc.addedAt     || doc.$createdAt || null,
   };
 }
