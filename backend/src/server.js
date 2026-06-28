@@ -10,8 +10,21 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: true,          // reflect the request origin (safe for local dev)
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization'],
+  credentials: true,
+}));
 app.use(express.json());
+
+// Catch unhandled promise rejections — prevents process crash that causes ERR_CONNECTION_RESET
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Server] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[Server] Uncaught Exception:', err);
+});
 
 // Logging middleware
 app.use((req, res, next) => {
@@ -37,12 +50,36 @@ app.post('/api/research', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders(); // Establish stream immediately
+  // Allow cross-origin reads of SSE stream
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.flushHeaders();
 
-  // Helper function to send SSE events
+  // Helper to send SSE events — safe against write-after-close
   const sendEvent = (type, data) => {
-    res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+    if (res.writableEnded) return;
+    try {
+      res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+    } catch (e) {
+      console.warn('[Server] SSE write error (client likely disconnected):', e.message);
+    }
   };
+
+  // Close SSE cleanly if client disconnects early
+  req.on('close', () => {
+    if (!res.writableEnded) {
+      console.log(`[Server] Client disconnected during research for "${company}"`);
+      res.end();
+    }
+  });
+
+  // Hard timeout — 4 min max for any research run
+  const timeout = setTimeout(() => {
+    if (!res.writableEnded) {
+      console.warn(`[Server] Research timeout for "${company}" after 4 minutes`);
+      sendEvent('error', { message: 'Research timed out after 4 minutes. The AI pipeline took too long — please try again.' });
+      res.end();
+    }
+  }, 240000);
 
   try {
     // 1. Check SQLite cache (unless bypassed)
@@ -58,6 +95,7 @@ app.post('/api/research', async (req, res) => {
         await new Promise(r => setTimeout(r, 800));
         
         sendEvent('result', { result: cachedRun, cached: true });
+        clearTimeout(timeout);
         return res.end();
       }
     }
@@ -69,6 +107,7 @@ app.post('/api/research', async (req, res) => {
       sendEvent('error', { 
         message: "LLM API Key missing! Please configure GEMINI_API_KEY or OPENAI_API_KEY in the backend/.env file." 
       });
+      clearTimeout(timeout);
       return res.end();
     }
 
@@ -106,11 +145,13 @@ app.post('/api/research', async (req, res) => {
 
     console.log(`[Server] Saved run to DB with ID: ${newRunId}`);
     sendEvent('result', { result: completeRun, cached: false });
+    clearTimeout(timeout);
     res.end();
   } catch (error) {
-    console.error(`[Server] Error processing research for "${company}":`, error);
-    sendEvent('error', { message: `Research analysis failed: ${error.message}` });
-    res.end();
+    clearTimeout(timeout);
+    console.error(`[Server] Error processing research for "${company}":`, error?.stack || error);
+    sendEvent('error', { message: `Research analysis failed: ${error?.message || 'Unknown error'}` });
+    if (!res.writableEnded) res.end();
   }
 });
 

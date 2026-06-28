@@ -58,7 +58,7 @@ function SwotQuad({ type, title, items }) {
   );
 }
 
-export default function Dashboard({ run, onSubmitFeedback, feedbackMessage }) {
+export default function Dashboard({ run, onSubmitFeedback, feedbackMessage, watchlist }) {
   const [logsOpen, setLogsOpen]               = useState(false);
   const [feedbackStatus, setFeedbackStatus]   = useState(run.feedbackStatus || 'none');
   const [feedbackComment, setFeedbackComment] = useState(run.feedbackComment || '');
@@ -70,6 +70,7 @@ export default function Dashboard({ run, onSubmitFeedback, feedbackMessage }) {
   const showBanner    = run.resolvedCompany && (run.resolutionStatus === 'resolved' || !run.resolutionStatus);
   const resolvedName  = run.resolvedCompany?.companyName || run.companyName;
   const resolvedTicker = run.resolvedCompany?.ticker || run.ticker;
+  const isWatched     = watchlist?.isWatched(run.companyName);
 
   const auditTags = ['Outdated Metrics','Incorrect Ticker','Reasoning Typo','Missing Competitor','Overconfident Score','Underconfident Score'];
 
@@ -130,8 +131,20 @@ export default function Dashboard({ run, onSubmitFeedback, feedbackMessage }) {
                 Current Price: <strong>${run.financialSummary.currentPrice.toFixed(2)} {run.financialSummary.currency}</strong>
               </div>
             )}
-            <div className={`decision-verdict ${isInvest ? 'invest' : 'pass'}`} style={{ marginTop: 16 }}>
-              {isInvest ? '↑ INVEST' : '↓ PASS'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
+              <div className={`decision-verdict ${isInvest ? 'invest' : 'pass'}`}>
+                {isInvest ? '↑ INVEST' : '↓ PASS'}
+              </div>
+              {watchlist && (
+                <button
+                  className={isWatched ? 'btn-ghost' : 'btn-brand'}
+                  style={{ padding: '8px 16px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6 }}
+                  onClick={() => isWatched ? watchlist.removeItem(run.companyName) : watchlist.addItem(run)}
+                >
+                  <Icon name="trending" size={13} color={isWatched ? 'var(--color-brand)' : '#fff'} />
+                  {isWatched ? 'Watching' : '+ Watchlist'}
+                </button>
+              )}
             </div>
           </div>
 
