@@ -188,12 +188,13 @@ function getLLMClients() {
     type: 'gemini',
     client: new GoogleGenerativeAI(key),
     modelNames: [
-      // Free-tier models only — ordered fastest/cheapest first.
-      // gemini-2.5-pro is intentionally excluded (limit: 0 on free tier).
+      // Confirmed available on these keys (verified via ListModels).
+      // Ordered: newest/fastest first, stable fallbacks last.
+      'gemini-2.5-flash',
       'gemini-2.0-flash',
       'gemini-2.0-flash-lite',
-      'gemini-1.5-flash',
-      'gemini-1.5-flash-8b',
+      'gemini-2.5-flash-lite',
+      'gemini-3.5-flash',
     ]
   }));
 
