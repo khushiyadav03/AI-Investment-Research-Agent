@@ -1,142 +1,244 @@
-# InsideInvest: AI Investment Research Agent
+# InsideInvest — AI Investment Research Agent
 
-InsideInvest is a full-stack AI investment research application. It takes a company name (public or private), conducts automated financial and sentiment research using free public sources, orchestrates analysis using an agentic state graph (LangGraph.js), and outputs a structured "Invest" or "Pass" recommendation with a confidence score, risk rating, and detailed reasoning.
+> **Live Demo:** https://ai-investment-research-agent-4hyxunviv.vercel.app
+> **GitHub:** https://github.com/khushiyadav03/AI-Investment-Research-Agent
+
+InsideInvest is a full-stack, AI-powered investment research platform. Enter any company name — public or private — and an agentic LangGraph.js pipeline resolves it, scrapes financial and news data from free public sources, runs multi-step LLM analysis, and delivers a structured **Invest / Pass** recommendation with a confidence score, risk rating, SWOT breakdown, and fully-referenced CIO thesis report.
 
 ---
 
 ## Overview
 
-InsideInvest automates the complex workflow of an investment research analyst:
-1. Ticker Resolution: Determines if the company is publicly traded and maps its name to a stock market ticker (for example, "Apple" to AAPL).
-2. Financial Data Download: Downloads balance sheet summaries, income statements, margins, valuation multiples, and historical price charts without requiring paid API keys.
-3. Web Search Scraping: Scrapes DuckDuckGo search results for recent news headlines, competitive landscape, and risk vectors.
-4. Agentic Analysis:
-   - Fundamentals: Evaluates solvency, leverage, cash flows, and profit margins.
-   - Sentiment: Analyzes market sentiment, competitor pressures, and industry headwind risks.
-   - Synthesizer: Integrates financial stats and qualitative news to formulate the final CIO investment report.
-5. SQLite Database Cache: Saves all research runs to a persistent SQLite database so reports can be reloaded instantly.
-6. Audit & Feedback Loop: Allows users to submit rating feedback (Agree/Helpful or Disagree/Audit) and comments on each run.
+InsideInvest automates the workflow of a buy-side research analyst across seven pipeline stages:
+
+1. **Company Resolution** — LLM identifies the canonical company from fuzzy or misspelled input, then cross-checks existence against Yahoo Finance and web search. Handles typos ("nvida" → NVIDIA), abbreviations, and private companies.
+2. **Ticker Resolution** — Maps the verified company name to its exchange ticker symbol (e.g. "Apple" → AAPL). Skips gracefully for private companies.
+3. **Financial Data Download** — Pulls balance sheet, income statement, key ratios (P/E, D/E, margins, FCF), and 1-year historical price chart from Yahoo Finance via the `yahoo-finance2` npm library. No paid API key required.
+4. **Web Due Diligence** — Scrapes DuckDuckGo HTML search results using Cheerio for recent news, competitor activity, regulatory risks, and market drivers. Runs two parallel searches (growth signals + risk signals) and deduplicates.
+5. **Fundamentals Analysis** — LLM evaluates the quantitative financial data: solvency, margins, leverage, valuation, and generates Strengths/Weaknesses lists with a metrics summary.
+6. **Sentiment & Risk Assessment** — LLM evaluates qualitative signals from news: market opportunities, competitor headwinds, and overall news sentiment classification (Positive / Neutral / Negative).
+7. **CIO Decision Synthesis** — LLM integrates all quantitative and qualitative signals to produce the final Invest/Pass decision with confidence %, risk rating (Low/Medium/High), and a full markdown reasoning report.
+
+**Additional features built:**
+- SQLite caching (7-day TTL) — instant reload for repeated queries
+- Real-time progress streaming via Server-Sent Events (SSE)
+- Multi-key Gemini API rotation with automatic failover across 5 keys and multiple model fallbacks
+- Appwrite authentication (email/password signup/login)
+- Appwrite database-backed Watchlist and Notifications
+- Data visualisations: Financial Health Radar, Margin Breakdown bar chart, Growth Indicators, Sentiment Donut, Valuation vs Market benchmark chart, Liquidity & Balance Sheet panel
+- Settings page with dark/light theme toggle
+- Documentation and Feedback pages
+- Audit feedback loop per research run
 
 ---
 
-## Setup and Run Instructions
+## How to Run
 
 ### Prerequisites
-- Node.js (version 22.5.0 or higher is required, as the application uses native Node.js SQLite features).
-- A Gemini API key (recommended, get one at Google AI Studio) or an OpenAI API key.
+- **Node.js v22.5.0+** (required — uses native `node:sqlite` module)
+- A **Gemini API key** (free at [Google AI Studio](https://aistudio.google.com/)) **or** an OpenAI API key
 
-### Configuration
-1. Open the backend configuration file: `backend/.env`
-2. Add your Gemini or OpenAI API keys:
-   ```env
-   PORT=3001
-   GEMINI_API_KEY=your_actual_gemini_key_here
-   OPENAI_API_KEY=your_optional_openai_key_here
-   DEFAULT_PROVIDER=gemini
-   ```
+### 1. Backend Setup
 
-### Running the Backend
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the Express server:
-   ```bash
-   npm run start
-   ```
-   The backend will start on port 3001 and automatically verify/initialize the database file `database.sqlite` in the backend root directory.
+```bash
+cd backend
+npm install
+```
 
-### Running the Frontend
-1. Open a new terminal and navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the Vite React development server:
-   ```bash
-   npm run dev
-   ```
-4. Open the development link displayed in the terminal in your web browser (usually http://localhost:5173).
+Create / edit `backend/.env`:
 
----
+```env
+PORT=3001
+GEMINI_API_KEY=your_gemini_key_here
+OPENAI_API_KEY=                        # optional
+DEFAULT_PROVIDER=gemini
+GEMINI_MODEL=gemini-2.0-flash
+```
 
-## How It Works: Approach and Architecture
+> You can add multiple comma-separated Gemini keys for automatic rate-limit failover:
+> `GEMINI_API_KEY=key1,key2,key3`
 
-InsideInvest connects a modern React client with an Express Node.js backend running an agentic StateGraph.
+Start the backend:
 
-### Architecture Data Flow
-- React Frontend: Collects the user's company search term, opens an EventSource connection to stream real-time logs, and renders the interactive dashboard, canvas stock charts, and SWOT grids.
-- Express Backend: Coordinates cache lookups in SQLite before running the AI graph. If it is a cache miss, it executes the LangGraph workflow, streaming progress updates in real-time using Server-Sent Events (SSE).
-- SQLite Database: Leverages native Node.js SQLite to store and fetch research runs.
-- Scrapers: Interface with Yahoo Finance (via yahoo-finance2 npm library) and DuckDuckGo (custom search scraper parsing HTML with cheerio).
+```bash
+npm run start
+# Backend runs at http://localhost:3001
+```
 
-### LangGraph.js State Graph Nodes
-1. `tickerResolution`: Resolves the stock ticker symbol.
-2. `fetchFinancials`: Fetches key statistics and 1-year historical chart coordinates.
-3. `webSearch`: Conducts search scraping for news headlines and competitor activities.
-4. `analyzeFundamentals`: Generates financial strength/weakness lists and summarizes balance sheet health.
-5. `analyzeSentiment`: Focuses on news sentiment, market opportunities, and competitive headwinds.
-6. `synthesizeDecision`: Formulates the final investment decision (Invest or Pass), confidence percentage, risk rating, and thesis reasoning.
+### 2. Frontend Setup
+
+```bash
+cd frontend
+npm install
+```
+
+Create `frontend/.env.local` (optional — only needed for Appwrite auth/watchlist/notifications):
+
+```env
+VITE_APPWRITE_ENDPOINT=https://fra.cloud.appwrite.io/v1
+VITE_APPWRITE_PROJECT_ID=your_project_id
+VITE_APPWRITE_DATABASE_ID=your_database_id
+VITE_APPWRITE_WATCHLIST_COLLECTION_ID=watchlist
+VITE_APPWRITE_NOTIFICATIONS_COLLECTION_ID=notifications
+```
+
+> Without these, the app works fully for research — auth/watchlist/notifications will use local seed data.
+
+Start the frontend:
+
+```bash
+npm run dev
+# Opens at http://localhost:5173
+```
+
+### 3. Use it
+
+Open `http://localhost:5173`, type any company name (e.g. "Nvidia", "Tesla", "Stripe", "a local bakery"), and click **Research**. The pipeline runs live with real-time progress updates streaming to the UI.
 
 ---
 
-## Key Decisions and Trade-Offs
+## How It Works — Architecture
 
-- React with Plain JavaScript (JSX): Selected plain JavaScript instead of TypeScript to maximize accessibility and make the codebase straightforward to inspect and modify.
-- Server-Sent Events (SSE) for Progress: Used SSE streams instead of standard REST requests. This allows the frontend to show real-time progress steps (such as "Downloading financial statements", "Analyzing balance sheet") while the AI agent runs, rather than showing a static spinner for 15 seconds.
-- Zero-Key News Scraper: Built a custom scraper that queries DuckDuckGo and parses HTML using Cheerio, meaning the application does not require paid Google Search or Tavily API keys to perform web due diligence.
-- Native Node.js SQLite: Used Node's native `node:sqlite` module instead of libraries like `sqlite3` or `better-sqlite3`. This avoids build-time C++ compilation errors on Windows and ensures smooth installation.
-- Custom Canvas Chart: Built a custom price history chart from scratch using HTML5 Canvas. This avoided adding large chart libraries, reduced bundle size, and allowed custom glowing area gradients and crosshair tooltips.
-- What Was Left Out: Did not implement user accounts or authentication to keep the installation simple and focused strictly on the AI agent workflow.
+```
+Browser (React + Vite)
+    │
+    │  POST /api/research  (SSE stream)
+    │  GET  /api/history
+    │  POST /api/history/:id/feedback
+    ▼
+Express.js Backend (Node.js)
+    │
+    ├── SQLite cache check (7-day TTL)
+    │
+    └── LangGraph.js StateGraph
+            │
+            ├── companyResolutionNode  ──► Gemini LLM (JSON schema)
+            │       └── verifyCompany  ──► Yahoo Finance + DuckDuckGo
+            │
+            ├── tickerResolutionNode   ──► Yahoo Finance search
+            │
+            ├── fetchFinancialsNode    ──► yahoo-finance2
+            │       └── fetchHistoricalChart
+            │
+            ├── webSearchNode          ──► DuckDuckGo HTML scraper (Cheerio)
+            │
+            ├── analyzeFundamentalsNode──► Gemini LLM (JSON schema)
+            │
+            ├── analyzeSentimentNode   ──► Gemini LLM (JSON schema)
+            │
+            └── synthesizeDecisionNode ──► Gemini LLM (JSON schema)
+                        │
+                        └── saveRun ──► SQLite (node:sqlite)
+```
+
+### SSE Streaming
+Every node calls `sendProgress(config, message)` which writes a `data: {...}\n\n` SSE event. The React frontend opens a `fetch()` streaming reader, splits on `\n\n`, parses each event, and advances the 7-step progress stepper in real time.
+
+### LLM JSON Control
+All LLM calls use Gemini's `responseMimeType: 'application/json'` + `responseSchema` for structured output. This eliminates markdown wrapping and format hallucinations. A fallback JSON repair step handles trailing commas and illegal control characters.
+
+### Multi-Key Failover
+The `getLLMClients()` function splits `GEMINI_API_KEY` on commas, creates one client per key, and iterates key × model combinations until one succeeds. Daily quota exhaustion on one key triggers immediate failover to the next, with no delay.
+
+### Routing Logic
+After company resolution, the graph branches:
+- `not_found` → stop, show suggestions
+- `ambiguous` → stop, ask user to confirm which company
+- `resolved` → continue full pipeline
+- No financials at end → `limited_data` path (qualitative report only)
+
+---
+
+## Key Decisions & Trade-Offs
+
+| Decision | Rationale |
+|---|---|
+| **LangGraph.js StateGraph** | Provides explicit node-by-node routing, conditional branching, and state accumulation — critical for a multi-step research workflow where any node can short-circuit the pipeline |
+| **SSE over WebSockets** | SSE is unidirectional (server → client), which matches the use case perfectly and requires no socket library. Much simpler to implement and deploy on serverless (Vercel) |
+| **Native `node:sqlite`** | Avoids C++ build-time compilation errors on Windows (common with `better-sqlite3`). Available natively in Node 22+ with no native addons |
+| **Zero-key news scraper** | Custom DuckDuckGo HTML scraper with Cheerio avoids paid Google/Tavily API keys entirely while still providing fresh news data |
+| **Gemini JSON schema mode** | Forces structured output without prompt engineering fragility. Much more reliable than asking the model to "output JSON" in the system prompt |
+| **Canvas chart (custom)** | The stock price history chart is built from scratch with HTML5 Canvas — avoids large chart library import, gives full control over the orange gradient fill and crosshair tooltip style |
+| **Recharts for analytics** | Radar, bar, donut charts for financial visualisations use recharts — avoids re-inventing complex math (polar coordinates, radial scales) for secondary charts |
+| **Plain JS (not TypeScript)** | Reduces boilerplate for a time-bounded project. The codebase is small enough that type safety isn't the bottleneck |
+| **Appwrite for auth/DB** | Free-tier managed BaaS — avoids writing auth logic from scratch while keeping the backend purely for the AI research pipeline |
+
+**What was left out:**
+- PDF/Excel export of the research report
+- Real competitor comparison (fetching 2-3 peer tickers and comparing their ratios side by side)
+- WebSocket-based real-time stock price updates
+- User-level research history scoped to auth (currently SQLite is shared; Appwrite DB would scope it)
+- Email notification on research completion (Appwrite Functions / Resend)
 
 ---
 
 ## Example Runs
 
-### Example Run 1: Apple Inc (AAPL)
-- Input: Apple Inc.
-- Ticker: AAPL
-- Metrics: Price: $275.15 | Valuation (P/E): 33.35 | Debt-to-Equity: 79.5% | Operating Margin: 32.2% | Revenue Growth (YoY): 16.6%
-- Decision: INVEST
-- Confidence: 85%
-- Risk Rating: Low
-- Summary: Apple exhibits exceptional financial strength. Its operating margin of 32.2% is industry-leading, and YoY revenue growth of 16.6% highlights solid demand. Although its P/E ratio is premium at 33.35, its free cash flow (exceeding $100B) and return on equity (141.4%) justify the valuation. The risk is rated Low due to its massive services ecosystem locking in customers.
+### Run 1 — Apple Inc. (AAPL) · INVEST
 
-### Example Run 2: Tesla Inc (TSLA)
-- Input: Tesla Inc.
-- Ticker: TSLA
-- Metrics: Price: $185.00 | Valuation (P/E): 55.20 | Debt-to-Equity: 12.5% | Profit Margin: 8.5% | Revenue Growth (YoY): -2.1%
-- Decision: PASS
-- Confidence: 75%
-- Risk Rating: High
-- Summary: Tesla faces margins compression down to 8.5% due to pricing competition. YoY growth has slowed to -2.1%, showing EV market saturation. At a P/E multiple of 55, the stock is priced for hyper-growth which is not currently supported by deliveries. High competition from domestic manufacturers and regulatory autonomous driving challenges make it a Pass at current prices.
+| Metric | Value |
+|---|---|
+| Price | $275.15 USD |
+| P/E Ratio | 33.35 |
+| Debt-to-Equity | 79.5% |
+| Operating Margin | 32.2% |
+| Revenue Growth (YoY) | +16.6% |
+| Free Cash Flow | $100B+ |
 
-### Example Run 3: Sweet Crust Bakery (Private Business)
-- Input: Sweet Crust Bakery
-- Ticker: N/A
-- Metrics: N/A (No public stock disclosures available)
-- Decision: PASS
-- Confidence: 40%
-- Risk Rating: High
-- Summary: Because Sweet Crust Bakery is a private local business, no verified balance sheets or cash flows are publicly available. Web sentiment is positive regarding local brand equity, but local bakery operations face margin pressure from raw ingredient inflation and labor costs. The lack of financial disclosures creates information asymmetry, resulting in a Pass under strict risk parameters.
+**Decision:** ↑ INVEST · **Confidence:** 85% · **Risk:** Low
+
+**Summary:** Apple exhibits exceptional financial strength. Its operating margin of 32.2% is industry-leading, and YoY revenue growth of 16.6% highlights solid demand. Although its P/E ratio is premium at 33.35, its free cash flow (exceeding $100B) and return on equity (141.4%) justify the valuation. The risk is rated Low due to its massive services ecosystem locking in customers and an anticipated multi-year AI upgrade cycle.
 
 ---
 
-## Future Improvements
+### Run 2 — Tesla Inc. (TSLA) · PASS
 
-With more time, the following features would be added:
-1. PDF and Excel Export: Allow downloading the complete SWOT analysis, financial tables, and CIO reasoning report as a PDF.
-2. Multi-Model Consensus: Run the final synthesis node through both Gemini and OpenAI in parallel, highlighting any differences in their investment recommendations.
-3. WebSockets for Stock Feeds: Stream real-time stock price changes on the dashboard using WebSockets instead of static polling.
+| Metric | Value |
+|---|---|
+| Price | $185.00 USD |
+| P/E Ratio | 55.20 |
+| Debt-to-Equity | 12.5% |
+| Profit Margin | 8.5% |
+| Revenue Growth (YoY) | -2.1% |
+
+**Decision:** ↓ PASS · **Confidence:** 75% · **Risk:** High
+
+**Summary:** Tesla faces margin compression to 8.5% due to aggressive pricing competition. YoY growth has turned negative (-2.1%), indicating EV market saturation. At a P/E multiple of 55, the stock is priced for hyper-growth not currently supported by delivery numbers. Intense competition from domestic Chinese manufacturers and unresolved regulatory challenges around autonomous driving make this a Pass at current prices.
 
 ---
 
-## LLM Chat logs and Transcripts
-As part of the development process, all LLM communication logs and internal agent reasoning steps are documented inside the file `thought_logs.md` in the root folder. This file contains step-by-step logs of ticker lookups, scraping fetches, LLM inputs, and parsing steps.
+### Run 3 — Sweet Crust Bakery (Private) · PASS
+
+| Metric | Value |
+|---|---|
+| Ticker | N/A (private) |
+| Financial Data | Not available |
+
+**Decision:** ↓ PASS · **Confidence:** 40% · **Risk:** High
+
+**Summary:** Sweet Crust Bakery is a private local business with no public financial disclosures. Web sentiment is positive for local brand equity, but operating margins are pressured by ingredient inflation and labor costs. Complete information asymmetry prevents any investment decision under strict risk parameters. Pipeline correctly routes to the `limited_data` path.
+
+---
+
+### Run 4 — Stripe Inc. (Private Fintech) · LIMITED DATA
+
+Stripe is a well-known private company — the pipeline correctly identifies it as private, skips ticker/financials, and produces a qualitative research summary covering its $65B valuation, payment processing market share, and competitive headwinds from Block and PayPal.
+
+---
+
+## What I Would Improve With More Time
+
+1. **Competitor benchmarking** — Fetch 2-3 peer company tickers automatically from the LLM's knowledge and pull their key ratios to build a true grouped bar chart comparison (company vs peers vs sector average)
+2. **PDF export** — Generate a one-click downloadable PDF of the full CIO report with all charts embedded, using Puppeteer or a React-to-PDF library
+3. **Multi-model consensus** — Run the synthesis node through both Gemini and GPT-4o in parallel and highlight where they disagree, giving the user a second opinion on the final recommendation
+4. **Per-user research history** — Scope the SQLite/Appwrite runs to the authenticated user's ID so each user sees only their own history
+5. **Real-time price widget** — WebSocket-based live price ticker on the dashboard for publicly traded companies
+6. **Email alerts** — Appwrite Functions + Resend integration to email the report when a watched company is re-researched and the decision changes
+
+---
+
+## LLM Chat Logs & Development Transcripts
+
+All internal agent thought logs — step-by-step execution traces showing ticker lookups, scraping fetches, LLM prompts, JSON outputs, and parsing steps for real research runs — are documented in **`thought_logs.md`** in the root folder.
+
+The development process used **Kiro AI** (Amazon's agentic IDE) as the primary AI pair-programmer for code generation, debugging, architecture decisions, and iterative refinement throughout the build. All significant design choices — including the LangGraph routing logic, SSE streaming architecture, multi-key failover system, and the Appwrite integration — were reasoned through and implemented collaboratively with the AI assistant, with every generated piece of code reviewed and validated by the developer.
