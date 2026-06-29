@@ -4,7 +4,6 @@ import Icon from './Icon';
 import FinancialRadarChart from './charts/FinancialRadarChart';
 import MarginsBarChart     from './charts/MarginsBarChart';
 import GrowthBarChart      from './charts/GrowthBarChart';
-import AnalystGauge        from './charts/AnalystGauge';
 import SentimentDonut      from './charts/SentimentDonut';
 import ValuationChart      from './charts/ValuationChart';
 import LiquidityPanel      from './charts/LiquidityPanel';
@@ -129,7 +128,6 @@ export default function Dashboard({ run, onSubmitFeedback, feedbackMessage, watc
   const showRadar     = hasFinancials;
   const showMargins   = hasFinancials && [fs.grossMargin, fs.operatingMargin, fs.profitMargin, fs.ebitdaMargin].filter(v => v != null).length >= 2;
   const showGrowth    = hasFinancials && (fs.revenueGrowth != null || fs.earningsGrowth != null);
-  const showAnalyst   = hasFinancials && (fs.recommendationKey || fs.recommendationMean != null);
   const showSentiment = !!run.sentimentAnalysis?.sentiment;
   const showValuation = hasFinancials && (fs.peRatio != null || fs.priceToBook != null || fs.pegRatio != null);
   const showLiquidity = hasFinancials && (fs.currentRatio != null || fs.quickRatio != null);
@@ -207,9 +205,6 @@ export default function Dashboard({ run, onSubmitFeedback, feedbackMessage, watc
           </div>
         </div>
       </div>
-
-      {/* ══ 2. ANALYST GAUGE (if available) ════════════════════ */}
-      {showAnalyst && <AnalystGauge fs={fs} />}
 
       {/* ══ 3. KEY METRIC STAT CARDS ════════════════════════════ */}
       {metricFields.length > 0 && (
