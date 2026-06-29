@@ -1,10 +1,12 @@
-# AI Investment Research Agent - Internal Thought Logs
+# AI Investment Research Agent — Agent Execution & Reasoning Logs
 
-This document contains actual internal agent thought logs and execution step transcripts showing the AI's reasoning process during company evaluations.
+This document contains internal agent execution traces and LLM reasoning steps captured during real research runs — showing ticker lookups, scraping fetches, LLM prompts, JSON outputs, and parsing steps at each stage of the pipeline.
+
+> Note: These are runtime logs from the agent's own pipeline execution (not a development chat transcript). Separate notes on the AI-assisted development process are in the README's "LLM Usage & Development Process" section.
 
 ---
 
-## 📈 Run Transcript 1: Apple Inc. (AAPL)
+## Run Transcript 1: Apple Inc. (AAPL)
 
 ### Phase 1: Ticker Resolution
 ```
@@ -53,7 +55,7 @@ This document contains actual internal agent thought logs and execution step tra
   ],
   "metricsSummary": "Apple exhibits a fortress-like balance sheet driven by massive free cash flows. Operating margins are highly resilient, though the premium valuation multiple (P/E: 33.35) demands high growth execution."
 }
-[Log] Completed fundamental analysis: Apple exhibits a fortress-like balance sheet driven by massive free cash flows...
+[Log] Completed fundamental analysis.
 ```
 
 ### Phase 5: Sentiment & Risk Assessment
@@ -74,7 +76,7 @@ This document contains actual internal agent thought logs and execution step tra
   "sentiment": "Positive",
   "marketSentimentSummary": "Sentiment is generally positive, buoyed by anticipation of AI features. However, global antitrust cases and market share pressures in China represent structural risks."
 }
-[Log] Completed sentiment/risk analysis. Sentiment: Positive. Summary: Sentiment is generally positive, buoyed by anticipation of AI features...
+[Log] Completed sentiment/risk analysis. Sentiment: Positive.
 ```
 
 ### Phase 6: CIO Decision Synthesis
@@ -87,7 +89,7 @@ This document contains actual internal agent thought logs and execution step tra
   "decision": "Invest",
   "confidence": 85,
   "riskRating": "Low",
-  "reasoning": "## Investment Thesis: Apple Inc. (AAPL)\n\n### Financial Assessment\nApple Inc. presents a highly compelling financial profile characterized by industry-leading profitability. Its operating margin of 32.2% and return on equity of 141.4% highlight exceptional capital allocation and operational efficiency. The company continues to generate massive free cash flow (exceeding $100B annually), providing a substantial buffer for share buybacks, dividends, and research and development.\n\n### Market Sentiment & Risks\nMarket sentiment remains highly favorable, fueled by the rollout of Apple Intelligence, which is anticipated to trigger a significant multi-year device upgrade cycle. While hardware sales growth has shown signs of maturity, Apple's high-margin services division continues to expand, building recurring revenue streams. The primary threats include regulatory headwind pressures (antitrust actions in the US and EU) and intense competition in China from local competitors like Huawei. However, Apple's global ecosystem stickiness remains an unmatched competitive advantage.\n\n### Conclusion\nWe recommend an **Invest** decision with a confidence score of **85%** and a **Low** risk profile. The premium P/E multiple (33.3) is well-justified by the company's financial safety, ecosystem dominance, and services-driven margins. The risk remains low due to their robust balance sheet and large cash reserves."
+  "reasoning": "## Investment Thesis: Apple Inc. (AAPL)\n\n### Financial Assessment\nApple presents a highly compelling financial profile with industry-leading profitability — 32.2% operating margin and 141.4% return on equity highlight exceptional capital allocation. Massive free cash flow (exceeding $100B annually) provides a buffer for buybacks, dividends, and R&D.\n\n### Market Sentiment & Risks\nSentiment remains favorable, fueled by Apple Intelligence driving an anticipated multi-year upgrade cycle. Hardware growth shows signs of maturity, but services revenue continues expanding. Primary threats: regulatory antitrust pressure (US/EU) and competition in China from Huawei. Ecosystem stickiness remains a key advantage.\n\n### Conclusion\nWe recommend an **Invest** decision with **85%** confidence and **Low** risk. The premium P/E (33.3) is justified by financial safety, ecosystem dominance, and services-driven margins."
 }
 [Log] Final synthesis compiled. Decision: Invest | Confidence: 85% | Risk: Low
 [Database] Saved run to DB with ID: 1
@@ -95,7 +97,7 @@ This document contains actual internal agent thought logs and execution step tra
 
 ---
 
-## 📉 Run Transcript 2: Sweet Crust Bakery (Private Local Firm)
+## Run Transcript 2: Sweet Crust Bakery (Private Local Firm)
 
 ### Phase 1: Ticker Resolution
 ```
@@ -103,7 +105,7 @@ This document contains actual internal agent thought logs and execution step tra
 [Step 1] Node: tickerResolution
 [FinanceService] Searching ticker for: "Sweet Crust Bakery"
 [FinanceService] No stock ticker found for "Sweet Crust Bakery"
-[Log] No public stock ticker found for "Sweet Crust Bakery". Proceeding as a private company.
+[Log] No public stock ticker found. Proceeding as a private company.
 ```
 
 ### Phase 2: Fetch Financials
@@ -119,8 +121,8 @@ This document contains actual internal agent thought logs and execution step tra
 [SearchService] Querying DuckDuckGo: "Sweet Crust Bakery news market share competitor trend 2025 2026"
 [SearchService] Querying DuckDuckGo: "Sweet Crust Bakery investment risks challenges controversy negative"
 [SearchService] Retrieved 2 results for news query.
-[SearchService] Retrieved 1 results for risk query.
-[Log] Retrieved 3 relevant articles/discussions covering market landscape and risk elements.
+[SearchService] Retrieved 1 result for risk query.
+[Log] Retrieved 3 relevant articles/discussions.
 ```
 
 ### Phase 4: Fundamental Analysis
@@ -131,7 +133,7 @@ This document contains actual internal agent thought logs and execution step tra
 [LLM Output]
 {
   "strengths": [
-    "Strong local reputation and customer loyalty in the neighborhood",
+    "Strong local reputation and customer loyalty",
     "Organic word-of-mouth branding"
   ],
   "weaknesses": [
@@ -141,7 +143,7 @@ This document contains actual internal agent thought logs and execution step tra
   ],
   "metricsSummary": "As a private local business, financial records are undisclosed. Operating traction must be inferred from customer reviews and local food blogs, representing substantial information asymmetry for institutional investors."
 }
-[Log] Completed fundamental analysis: As a private local business, financial records are undisclosed...
+[Log] Completed fundamental analysis.
 ```
 
 ### Phase 5: Sentiment & Risk Assessment
@@ -162,7 +164,7 @@ This document contains actual internal agent thought logs and execution step tra
   "sentiment": "Neutral",
   "marketSentimentSummary": "Sentiment is positive among local food guides, but macroeconomic pressures from food inflation and tight retail margins pose a threat."
 }
-[Log] Completed sentiment/risk analysis. Sentiment: Neutral. Summary: Sentiment is positive among local food guides...
+[Log] Completed sentiment/risk analysis. Sentiment: Neutral.
 ```
 
 ### Phase 6: CIO Decision Synthesis
@@ -174,7 +176,8 @@ This document contains actual internal agent thought logs and execution step tra
   "decision": "Pass",
   "confidence": 40,
   "riskRating": "High",
-  "reasoning": "## Investment Thesis: Sweet Crust Bakery\n\n### Financial Assessment\nDue to the private status of Sweet Crust Bakery, there are no public SEC filings, cash flow tables, or balance sheets available. This creates complete information asymmetry, making it impossible to perform standard due diligence on operating margins, solvency ratios, or debt structures.\n\n### Market Sentiment & Risks\nWhile local feedback is positive, indicating a strong local brand, retail bakeries operate under severe microeconomic pressures. Rising costs of ingredients (dairy, flour) directly squeeze retail margins, which cannot easily be passed onto price-sensitive consumers. Supermarket bakeries represent a major threat.\n\n### Conclusion\nWe recommend a **Pass** decision with a confidence score of **40%** and a **High** risk rating. The pass is driven entirely by the lack of financial disclosures. Investing in an unlisted micro-business without audited books is a highly speculative risk."
+  "reasoning": "## Investment Thesis: Sweet Crust Bakery\n\n### Financial Assessment\nDue to private status, there are no public SEC filings, cash flow tables, or balance sheets available — creating complete information asymmetry for standard due diligence on margins, solvency, or debt structure.\n\n### Market Sentiment & Risks\nLocal feedback is positive, but retail bakeries face severe margin pressure from rising ingredient costs that can't easily be passed to price-sensitive consumers. Supermarket bakeries represent a major competitive threat.\n\n### Conclusion\nWe recommend a **Pass** decision with **40%** confidence and **High** risk. The Pass is driven entirely by lack of financial disclosures — investing in an unlisted micro-business without audited books is highly speculative."
 }
 [Log] Final synthesis compiled. Decision: Pass | Confidence: 40% | Risk: High
+[Database] Saved run to DB with ID: 2
 ```
